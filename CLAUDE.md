@@ -33,9 +33,41 @@ Logout is **not** here and gets no service of its own: `marketplace-dev-authenti
 deletes sessions by token content and never inspects which model minted them, so all three tiers share
 it unchanged.
 
-⚠️ **`test/` carries only `integration/globalSetup.mts`** — the harness, no tests, per the standing
-"skip all tests" instruction and matching `marketplace-shopowner`. The coverage gate therefore reports
-0% and a commit here needs `--no-verify`. Do not lower a threshold or remove a gate to work around it.
+## Tests
+
+**Seven unit files, 55 tests, 100% on all four coverage metrics and a 100.00 mutation score.** The
+"skip all tests" instruction this repo was built under was revoked by the user on 2026-08-06 and the
+suite was written from the harness up.
+
+⚠️ **`yarn test:cov` still fails, and not because of coverage.** It runs both vitest projects, and the
+`integration` one aborts in `globalSetup` before collecting a test: all seven `MONGO_TEST_*` keys are
+missing from this machine's environment file, so `assertTestMongoEnv` refuses to build a URL and names
+every one of them — `MONGO_TEST_CONN_STRING`, `MONGO_TEST_AUTH_ADMIN`, `MONGO_TEST_UDBOWNER`,
+`MONGO_TEST_PWDDBOWNER`, `MONGO_TEST_UDBRW`, `MONGO_TEST_PWDDBRW`, `MONGO_TEST_DB`. Adding them means
+provisioning two database users (the loop in `marketplace-db-setup/setup/mongodb.js`), which is the
+user's call; `marketplace-dev-user-authenticated-resource` is blocked the same way. Until then the unit
+project alone is verifiable — `npx vitest run --project unit --coverage` reports 100% — and a commit
+needs `--no-verify` for that reason and no other. **Do not lower a threshold or narrow `test:cov` to one
+project to make it green.** `QODANA_TOKEN` is absent here too, so the scan needs `SKIP_QODANA=1` until a
+qodana.cloud project exists for this repo.
+
+Three things the suite pins that a reader is likely to get wrong:
+
+- **The introspection bypass is narrower here than in the resource services.** It is consulted only
+  *after* `verifySignedRefreshToken` has returned a token, so an `x-introspectioncode` with no cookie is
+  still a 412 — the code stands in for a *session*, never for the signature, and a leaked code alone
+  cannot be replayed. `index.unit.test.mts` asserts both halves.
+- **The tier is asserted before the `_id` is looked up**, and the wire test proves the order by
+  asserting `User.findById` was never called on a ShopOwner session. The lookup is not a substitute for
+  the assertion: it only fails by accident, when the foreign id happens not to exist in `user` too.
+- **`refresh` rotates rather than re-issues** — the refresh token the call was made with is deleted, so
+  a stolen copy is worthless the moment the legitimate client refreshes. The wire test asserts the exact
+  `del` key.
+
+`index.unit.test.mts` boots the real server with `createServer()` on port 0 and drives `/health`, an
+unknown path, a signed refresh over the endpoint, the cross-tier refusal and a bare GET refused by
+`csrfPrevention`, with Redis and the `User` model stubbed. That is what covers the dispatch middleware
+while the integration project cannot run; it is not a replacement for it.
 
 ## Version control
 
