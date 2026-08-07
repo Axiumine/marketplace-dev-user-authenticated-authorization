@@ -248,8 +248,12 @@ describe('refresh-cookie gate over HTTP', () => {
 	 * authorization service would accept — and before `tier` was written into the session, this
 	 * service accepted it too. The document it names really is a `user`, so nothing downstream would
 	 * have noticed; the mismatch is the only thing that can reject it.
+	 *
+	 * 403 and not 401, which is the whole point of the distinction: the caller authenticated
+	 * correctly, it simply authenticated somewhere else. A 401 would tell the client to refresh its
+	 * way out — and this *is* the refresh call, so there is nothing left for it to try.
 	 */
-	it('answers 401 when the live session was minted for another tier', async () => {
+	it('answers 403 when the live session was minted for another tier', async () => {
 		const { _id } = await seedUser()
 		const refresh = randomUUID()
 		await redisClient.hSet(track(`${REDIS_KEY}refresh:${refresh}`), {
@@ -259,8 +263,8 @@ describe('refresh-cookie gate over HTTP', () => {
 
 		const { status, json } = await gql('{ helloRefresh { txt } }', { cookie: signedCookie(refresh) })
 
-		expect(status).toBe(401)
-		expect(json.message).toBe('Unauthorized')
+		expect(status).toBe(403)
+		expect(json.message).toBe('Forbidden')
 	})
 
 	// The other MongoDB branch tokenInfoUser can take once it DOES find the document: a real

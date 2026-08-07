@@ -49,26 +49,40 @@ it unchanged.
 
 ## Tests
 
-**Seven unit files, 56 tests, 100% on all four coverage metrics and a 100.00 mutation score.** The
-"skip all tests" instruction this repo was built under was revoked by the user on 2026-08-06 and the
-suite was written from the harness up.
+**Eight files, 71 tests, 100% on all four coverage metrics and a 100.00 mutation score** — seven unit
+files (56 tests) plus the integration one (15). The "skip all tests" instruction this repo was built
+under was revoked by the user on 2026-08-06 and the suite was written from the harness up.
 
-⚠️ **`yarn test:cov` still fails, and not because of coverage.** It runs both vitest projects, and the
-`integration` one aborts in `globalSetup` before collecting a test: five `MONGO_TEST_*` keys are missing
-from this machine's environment file, so `assertTestMongoEnv` refuses to build a URL and names every one
-of them — `MONGO_TEST_CONN_STRING`, `MONGO_TEST_UDBOWNER`, `MONGO_TEST_PWDDBOWNER`, `MONGO_TEST_UDBRW`,
-`MONGO_TEST_PWDDBRW`. (It named seven until 2026-08-07; `MONGO_TEST_DB` and `MONGO_TEST_AUTH_ADMIN` have
-since been filled in.) Adding the rest means provisioning two database users (the loop in
-`marketplace-db-setup/setup/mongodb.js`), which is the user's call;
-`marketplace-dev-user-authenticated-resource` is blocked the same way. Until then the unit project alone
-is verifiable — `npx vitest run --project unit --coverage` reports 100% — and a commit needs
-`--no-verify` for that reason and no other. **Do not lower a threshold or narrow `test:cov` to one
-project to make it green.**
+⚠️ **`yarn test:cov` ran for the first time on 2026-08-07, and until that day it had never executed a
+single integration test.** The `integration` project aborted in `globalSetup` before collecting
+anything, because this machine's environment file was a copy of an unrelated old project's: five
+`MONGO_TEST_*` keys were empty, so `assertTestMongoEnv` refused to build a URL. They are filled in now,
+and the two database users they authenticate as were provisioned with the loop in
+`marketplace-db-setup/setup/mongodb.js` — dropping `dbMarketplaceTestUserAuthz` does **not** remove
+them, MongoDB keeps users in `admin.system.users`. Three more keys in the same file were wrong rather
+than missing and are worth knowing about, because each one fails somewhere far from its cause:
+
+- **`KEYGRIP_KEY_1` / `KEYGRIP_KEY_2` did not match `marketplace-dev-public-authorization`'s.** That
+  service is where `loginUser` signs the customer's refresh cookie, and this one has to verify the
+  signature — with different keys every customer refresh returns 401 and no test covers the pairing,
+  because each service signs and verifies with itself in its own suite.
+- **`MONGODB_URI` pointed at `testRnApollo`**, a leftover database from a different project, with no
+  `authSource`. The `user` collection the migrations create lives in `dbMarketplaceDev`.
+- **`INTROSPECTION_CODE` differed from the seven other services'**, which breaks the service-to-service
+  bypass in both directions.
+
+⚠️ **A value containing whitespace must be quoted in that file.** dotenv terminates a bare value at the
+first space, hands back the truncated prefix and reports no error — which is exactly how a keygrip key
+silently became a 76-character slice of its 89-character self. Single quotes, not double: dotenv expands
+`\n` and `\r` escapes inside double quotes.
+
+**Do not lower a threshold or narrow `test:cov` to one project to make it green.**
 
 **Qodana runs clean here as of 2026-08-07** — the token was added and the cloud project is `B5NEV`, so
-`SKIP_QODANA=1` is no longer needed. It has to be invoked by hand after a `--no-verify` commit, which is
-the one gate a bypass silently drops that nothing else re-runs: `SKIP_TESTS=1 ./qodana.sh --results-dir
-.qodana/results`, after `npx vitest run --project unit --coverage` has written the lcov it reuses.
+`SKIP_QODANA=1` is no longer needed. Since the environment file was repaired the hooks run it like
+everywhere else, so it needs invoking by hand only after a `--no-verify` commit — the one gate a bypass
+silently drops that nothing else re-runs: `SKIP_TESTS=1 ./qodana.sh --results-dir .qodana/results`,
+after `yarn test:cov` has written the lcov it reuses.
 
 Three things the suite pins that a reader is likely to get wrong:
 
