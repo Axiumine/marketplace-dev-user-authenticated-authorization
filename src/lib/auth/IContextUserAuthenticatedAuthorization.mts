@@ -1,22 +1,23 @@
 import { TCommonHeaders } from '@axiumine/koa-utils/graphQL/schema/context/TCommonHeaders'
 import { ICookies } from '@axiumine/koa-utils/lib/ICookies'
-import { IRedisDataUser } from '@thedoctorweb_agency/marketplace-common/others/Redis/IRedisDataUser'
+import { IRedisDataUserCommon } from '@thedoctorweb_agency/marketplace-common/others/Redis/IRedisDataUserCommon'
+import { TAuthorizationSession } from '@thedoctorweb_agency/marketplace-common/others/resolveAuthorizationSession'
 import { IncomingHttpHeaders } from 'http'
 
 /**
- * ⚠️ Local, and NOT `IRedisDataUserForNode` from marketplace-common despite the near-identical name.
- * That one is what a *resource* service holds — `_id` re-hydrated into an ObjectId, no refresh token,
- * because a resource service never sees one. This shape is the authorization service's: every value
- * still a string, exactly as Redis returned it, plus the refresh token the request arrived with so
- * `refresh` can delete it after minting the replacement. The ShopOwner service next door declares its
- * own for the same reason.
+ * `ctx.state.user` is exactly what `resolveAuthorizationSession` returns — the tier-specific half of
+ * the access-token hash, plus the `_id`, the `tier` and the refresh token the session was resolved
+ * from. Declaring it as the helper's own return type rather than restating those three fields is what
+ * lets the middleware assign the session without a cast, and what stops the two drifting.
+ *
+ * ⚠️ Still NOT `IRedisDataUserForNode` from marketplace-common, despite the near-identical shape. That
+ * one is what a *resource* service holds — `_id` re-hydrated into an ObjectId, no refresh token,
+ * because a resource service never sees one. This is the authorization service's: every value still a
+ * string, exactly as Redis returned it, plus the refresh token the request arrived with so `refresh`
+ * can delete it after minting the replacement.
  */
-interface IRedisDataUserForAuthorization extends IRedisDataUser {
-	refreshToken: string
-}
-
 type IStateApi = {
-	user: IRedisDataUserForAuthorization
+	user: TAuthorizationSession<IRedisDataUserCommon>
 }
 export type IContextUserAuthenticatedAuthorization = {
 	state: IStateApi
