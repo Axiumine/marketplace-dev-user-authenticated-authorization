@@ -10,19 +10,33 @@ Token lifecycle for the **customer** tier — `User`, the end customer who place
 endpoint `/user-authenticated-authorization`, one mutation: `refresh`. No business queries; those live
 in `marketplace-dev-user-authenticated-resource` (4032).
 
-It was copied from `marketplace-dev-authenticated-authorization` (4029, the ShopOwner tier) and is
-deliberately **not** a straight rename. Three differences, none of which should be "corrected" back:
+⚠️ **Most of this service's body lives in `marketplace-common` since 4.4.0, and that is deliberate.** It
+was copied from `marketplace-dev-authenticated-authorization` (4029) and the copy was near-exact, so on
+2026-08-07 the shared part moved into `resolveAuthorizationSession`, `findAccountForSession` and
+`refreshSessionTokens` — while the three services, three ports and three crash domains stayed exactly as
+they were. The survey behind that choice, including the two options that were rejected and why, is
+`docs/decisions/authorization-service-consolidation.md` in the parent workspace. **Do not re-inline the
+helpers, and do not go the other way and merge the services**: the second is a decision the user has already
+taken, against. `ctx.state.user` is typed `TAuthorizationSession<IRedisDataUserCommon>` — the helper's own
+return type rather than a restatement of it, which is what lets the middleware assign the session with no
+cast.
+
+What is left here is what makes this the customer tier, and it is
+deliberately **not** a straight rename of the shop-owner service. Three differences, none of which should be
+"corrected" back:
 
 - **No onboarding.** The ShopOwner service imports `makeOnboardingData` and branches on
   `login.onboardingStep` / `login.onboardingDone` / `login.firstLogin`, because a shop owner is walked
   through a multi-step onboarding an operator can interrupt. A customer has none. `tokenInfoUser`
   therefore projects three fields fewer than `tokenInfoShopOwner`, and the access-token hash is `_id`,
-  `email`, `tier` and nothing else — `IRedisDataUser` has nowhere to put a step.
-- **`assertTier(redData.tier, TIER.user)`** in the auth middleware. All nine services share one
-  `REDIS_KEY` prefix, so a well-formed refresh session found under this key may have been minted for
-  another tier. The assertion runs *before* the `_id` is looked up in `user`: that lookup is not a
-  substitute, it only fails by accident, when the foreign id happens not to exist in `user` too. A
-  session with no `tier` predates the discriminator and is refused as well — fail closed.
+  `email`, `tier` and nothing else — `IRedisDataUserCommon` has nowhere to put a step.
+- **`TIER.user`**, hardcoded at the one `resolveAuthorizationSession` call, which asserts it. All nine
+  services share one `REDIS_KEY` prefix, so a well-formed refresh session found under this key may have
+  been minted for another tier. The assertion runs *before* the `_id` is looked up in `user`: that lookup
+  is not a substitute, it only fails by accident, when the foreign id happens not to exist in `user` too. A
+  session with no `tier` predates the discriminator and is refused as well — fail closed. The `assertTier`
+  call itself moved into the shared helper in 4.4.0; the *constant* stays here, because a service that
+  could be told its own tier by a caller would not be asserting anything.
 - **`emailVerify.valid` is not re-checked on refresh.** `loginUser` on 4028 refuses to mint a session
   for an unconfirmed address in the first place, so no refresh session can exist for one, and nothing
   on the platform ever un-confirms an address. `deleted` and `disabled` *can* flip after login, which
