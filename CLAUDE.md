@@ -35,21 +35,26 @@ it unchanged.
 
 ## Tests
 
-**Seven unit files, 55 tests, 100% on all four coverage metrics and a 100.00 mutation score.** The
+**Seven unit files, 56 tests, 100% on all four coverage metrics and a 100.00 mutation score.** The
 "skip all tests" instruction this repo was built under was revoked by the user on 2026-08-06 and the
 suite was written from the harness up.
 
 ⚠️ **`yarn test:cov` still fails, and not because of coverage.** It runs both vitest projects, and the
-`integration` one aborts in `globalSetup` before collecting a test: all seven `MONGO_TEST_*` keys are
-missing from this machine's environment file, so `assertTestMongoEnv` refuses to build a URL and names
-every one of them — `MONGO_TEST_CONN_STRING`, `MONGO_TEST_AUTH_ADMIN`, `MONGO_TEST_UDBOWNER`,
-`MONGO_TEST_PWDDBOWNER`, `MONGO_TEST_UDBRW`, `MONGO_TEST_PWDDBRW`, `MONGO_TEST_DB`. Adding them means
-provisioning two database users (the loop in `marketplace-db-setup/setup/mongodb.js`), which is the
-user's call; `marketplace-dev-user-authenticated-resource` is blocked the same way. Until then the unit
-project alone is verifiable — `npx vitest run --project unit --coverage` reports 100% — and a commit
-needs `--no-verify` for that reason and no other. **Do not lower a threshold or narrow `test:cov` to one
-project to make it green.** `QODANA_TOKEN` is absent here too, so the scan needs `SKIP_QODANA=1` until a
-qodana.cloud project exists for this repo.
+`integration` one aborts in `globalSetup` before collecting a test: five `MONGO_TEST_*` keys are missing
+from this machine's environment file, so `assertTestMongoEnv` refuses to build a URL and names every one
+of them — `MONGO_TEST_CONN_STRING`, `MONGO_TEST_UDBOWNER`, `MONGO_TEST_PWDDBOWNER`, `MONGO_TEST_UDBRW`,
+`MONGO_TEST_PWDDBRW`. (It named seven until 2026-08-07; `MONGO_TEST_DB` and `MONGO_TEST_AUTH_ADMIN` have
+since been filled in.) Adding the rest means provisioning two database users (the loop in
+`marketplace-db-setup/setup/mongodb.js`), which is the user's call;
+`marketplace-dev-user-authenticated-resource` is blocked the same way. Until then the unit project alone
+is verifiable — `npx vitest run --project unit --coverage` reports 100% — and a commit needs
+`--no-verify` for that reason and no other. **Do not lower a threshold or narrow `test:cov` to one
+project to make it green.**
+
+**Qodana runs clean here as of 2026-08-07** — the token was added and the cloud project is `B5NEV`, so
+`SKIP_QODANA=1` is no longer needed. It has to be invoked by hand after a `--no-verify` commit, which is
+the one gate a bypass silently drops that nothing else re-runs: `SKIP_TESTS=1 ./qodana.sh --results-dir
+.qodana/results`, after `npx vitest run --project unit --coverage` has written the lcov it reuses.
 
 Three things the suite pins that a reader is likely to get wrong:
 
