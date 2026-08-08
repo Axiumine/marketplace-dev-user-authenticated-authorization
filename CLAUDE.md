@@ -1,158 +1,94 @@
 # marketplace-dev-user-authenticated-authorization
 
-One of the nine backend services. **Read the parent workspace's `CLAUDE.md` first** —
-`/media/nvme/websites/fullstack-marketplace-blueprint/CLAUDE.md`. The tier/concern split, the port table, the terminology
-mapping and the auth model live there, not here; this file carries only what is specific to this repo.
+Backend svc 8 of 9. User tier, authorization concern. Port 4031, endpoint
+`/user-authenticated-authorization`. One mutation: `refresh`.
 
-## What this service is
+**Read parent first** — `/media/nvme/websites/fullstack-marketplace-blueprint/CLAUDE.md`. Tier/concern
+split, port table, terminology, auth model live there. Not here.
 
-Token lifecycle for the **customer** tier — `User`, the end customer who places orders. Port **4031**,
-endpoint `/user-authenticated-authorization`, one mutation: `refresh`. No business queries; those live
-in `marketplace-dev-user-authenticated-resource` (4032).
+| Need | File |
+|---|---|
+| what this svc is, suite shape, env-repair history | `README.md` |
+| hook internals, gate order, node selection | `REPO.md` |
+| why the three authz svcs stay three | parent `docs/decisions/authorization-service-consolidation.md` |
 
-⚠️ **Most of this service's body lives in `marketplace-common` since 4.4.0, and that is deliberate.** It
-was copied from `marketplace-dev-authenticated-authorization` (4029) and the copy was near-exact, so on
-2026-08-07 the shared part moved into `resolveAuthorizationSession`, `findAccountForSession` and
-`refreshSessionTokens` — while the three services, three ports and three crash domains stayed exactly as
-they were. The survey behind that choice, including the two options that were rejected and why, is
-`docs/decisions/authorization-service-consolidation.md` in the parent workspace. **Do not re-inline the
-helpers, and do not go the other way and merge the services**: the second is a decision the user has already
-taken, against. `ctx.state.user` is typed `TAuthorizationSession<IRedisDataUserCommon>` — the helper's own
-return type rather than a restatement of it, which is what lets the middleware assign the session with no
-cast.
+Business queries → `marketplace-dev-user-authenticated-resource` (4032). Logout →
+`marketplace-dev-authenticated-logout` (4030), all three tiers.
 
-What is left here is what makes this the customer tier, and it is
-deliberately **not** a straight rename of the shop-owner service. Three differences, none of which should be
-"corrected" back:
+## Decided, not re-openable
 
-- **No onboarding.** The ShopOwner service imports `makeOnboardingData` and branches on
-  `login.onboardingStep` / `login.onboardingDone` / `login.firstLogin`, because a shop owner is walked
-  through a multi-step onboarding an operator can interrupt. A customer has none. `tokenInfoUser`
-  therefore projects three fields fewer than `tokenInfoShopOwner`, and the access-token hash is `_id`,
-  `email`, `tier` and nothing else — `IRedisDataUserCommon` has nowhere to put a step.
-- **`TIER.user`**, hardcoded at the one `resolveAuthorizationSession` call, which asserts it. All nine
-  services share one `REDIS_KEY` prefix, so a well-formed refresh session found under this key may have
-  been minted for another tier. The assertion runs *before* the `_id` is looked up in `user`: that lookup
-  is not a substitute, it only fails by accident, when the foreign id happens not to exist in `user` too. A
-  session with no `tier` predates the discriminator and is refused as well — fail closed. The `assertTier`
-  call itself moved into the shared helper in 4.4.0; the *constant* stays here, because a service that
-  could be told its own tier by a caller would not be asserting anything.
-- **`emailVerify.valid` is not re-checked on refresh.** `loginUser` on 4028 refuses to mint a session
-  for an unconfirmed address in the first place, so no refresh session can exist for one, and nothing
-  on the platform ever un-confirms an address. `deleted` and `disabled` *can* flip after login, which
-  is why `checkUserAuthorizationDisDel` runs on every refresh: it makes disabling an account take
-  effect within one access-token lifetime instead of one refresh-token lifetime.
+⚠️ **Most of this service's body lives in `marketplace-common`, deliberately. Do not re-inline the
+helpers, and do not go the other way and merge the three authorization services into one.** The merge is
+a decision the user has already taken, against. The survey behind it, including the two rejected
+alternatives, is the decision doc named above.
 
-Logout is **not** here and gets no service of its own: `marketplace-dev-authenticated-logout` (4030)
-deletes sessions by token content and never inspects which model minted them, so all three tiers share
-it unchanged.
+## Not a rename of the ShopOwner service
 
-## Tests
+Copied from 4029. Three differences, none of them an omission to "correct" back:
 
-**Eight files, 71 tests, 100% on all four coverage metrics and a 100.00 mutation score** — seven unit
-files (56 tests) plus the integration one (15). The "skip all tests" instruction this repo was built
-under was revoked by the user on 2026-08-06 and the suite was written from the harness up.
+- **No onboarding.** The ShopOwner svc imports `makeOnboardingData` and branches on `login.onboardingStep`
+  / `login.onboardingDone` / `login.firstLogin`. A customer has none → `tokenInfoUser` projects three
+  fields fewer than `tokenInfoShopOwner`, access-token hash is `_id`, `email`, `tier` and nothing else, and
+  `IRedisDataUserCommon` has nowhere to put a step.
+- **`TIER.user`**, hardcoded at the one `resolveAuthorizationSession` call, which asserts it. All nine svcs
+  share one `REDIS_KEY` prefix, so a well-formed refresh session found under this key may have been minted
+  for another tier. The assertion runs *before* the `_id` is looked up: that lookup is not a substitute, it
+  only fails by accident, when the foreign id happens not to exist in `user` too. A session with no `tier`
+  predates the discriminator and is refused as well — fail closed. `assertTier` itself moved into the
+  shared helper in 4.4.0; the *constant* stays here, because a svc that could be told its own tier by a
+  caller asserts nothing.
+- **`emailVerify.valid` is not re-checked on refresh.** `loginUser` on 4028 refuses to mint a session for
+  an unconfirmed address in the first place, and nothing on the platform ever un-confirms one. `deleted`
+  and `disabled` *can* flip after login, which is why `checkUserAuthorizationDisDel` runs on every refresh:
+  it makes disabling an account take effect within one access-token lifetime instead of one refresh-token
+  lifetime.
 
-⚠️ **`yarn test:cov` ran for the first time on 2026-08-07, and until that day it had never executed a
-single integration test.** The `integration` project aborted in `globalSetup` before collecting
-anything, because this machine's environment file was a copy of an unrelated old project's: five
-`MONGO_TEST_*` keys were empty, so `assertTestMongoEnv` refused to build a URL. They are filled in now,
-and the two database users they authenticate as were provisioned with the loop in
-`marketplace-db-setup/setup/mongodb.js` — dropping `dbMarketplaceTestUserAuthz` does **not** remove
-them, MongoDB keeps users in `admin.system.users`. Three more keys in the same file were wrong rather
-than missing and are worth knowing about, because each one fails somewhere far from its cause:
+`ctx.state.user` = `TAuthorizationSession<IRedisDataUserCommon>` — the helper's own return type, not a
+restatement of it. Middleware assigns with no cast; context type and helper cannot drift.
 
-- **`KEYGRIP_KEY_1` / `KEYGRIP_KEY_2` did not match `marketplace-dev-public-authorization`'s.** That
-  service is where `loginUser` signs the customer's refresh cookie, and this one has to verify the
-  signature — with different keys every customer refresh returns 401 and no test covers the pairing,
-  because each service signs and verifies with itself in its own suite.
-- **`MONGODB_URI` pointed at `testRnApollo`**, a leftover database from a different project, with no
-  `authSource`. The `user` collection the migrations create lives in `dbMarketplaceDev`.
-- **`INTROSPECTION_CODE` differed from the seven other services'**, which breaks the service-to-service
-  bypass in both directions.
-
-⚠️ **A value containing whitespace must be quoted in that file.** dotenv terminates a bare value at the
-first space, hands back the truncated prefix and reports no error — which is exactly how a keygrip key
-silently became a 76-character slice of its 89-character self. Single quotes, not double: dotenv expands
-`\n` and `\r` escapes inside double quotes.
-
-**Do not lower a threshold or narrow `test:cov` to one project to make it green.**
-
-**Qodana runs clean here as of 2026-08-07** — the token was added and the cloud project is `B5NEV`, so
-`SKIP_QODANA=1` is no longer needed. Since the environment file was repaired the hooks run it like
-everywhere else, so it needs invoking by hand only after a `--no-verify` commit — the one gate a bypass
-silently drops that nothing else re-runs: `SKIP_TESTS=1 ./qodana.sh --results-dir .qodana/results`,
-after `yarn test:cov` has written the lcov it reuses.
-
-Three things the suite pins that a reader is likely to get wrong:
+## Traps
 
 - **The introspection bypass is narrower here than in the resource services.** It is consulted only
   *after* `verifySignedRefreshToken` has returned a token, so an `x-introspectioncode` with no cookie is
-  still a 412 — the code stands in for a *session*, never for the signature, and a leaked code alone
-  cannot be replayed. `index.unit.test.mts` asserts both halves.
-- **The tier is asserted before the `_id` is looked up**, and the wire test proves the order by
-  asserting `User.findById` was never called on a ShopOwner session. The lookup is not a substitute for
-  the assertion: it only fails by accident, when the foreign id happens not to exist in `user` too.
-- **`refresh` rotates rather than re-issues** — the refresh token the call was made with is deleted, so
-  a stolen copy is worthless the moment the legitimate client refreshes. The wire test asserts the exact
+  still a 412. The code stands in for a *session*, never for the signature, and a leaked code alone cannot
+  be replayed. `index.unit.test.mts` asserts both halves.
+- **`refresh` rotates rather than re-issues.** The refresh token the call was made with is deleted, so a
+  stolen copy is worthless the moment the legitimate client refreshes. The wire test asserts the exact
   `del` key.
+- **`KEYGRIP_KEY_1` / `KEYGRIP_KEY_2` must equal `marketplace-dev-public-authorization`'s**, and
+  `INTROSPECTION_CODE` must equal the other eight services'. Nothing tests either pairing — each service
+  signs and verifies with itself in its own suite — so a mismatch surfaces only as a 401 on every customer
+  refresh, or as a service-to-service bypass that fails in both directions.
+- **A value containing whitespace must be quoted in the environment file, in single quotes.** dotenv
+  terminates a bare value at the first space, hands back the truncated prefix and reports no error — which
+  is how a keygrip key silently became a 76-character slice of its 89-character self. Not double quotes:
+  dotenv expands `\n` and `\r` escapes inside those.
+
+## Tests
+
+Eight files, 71 tests, 100% on all four coverage metrics, mutation score 100.
 
 `index.unit.test.mts` boots the real server with `createServer()` on port 0 and drives `/health`, an
 unknown path, a signed refresh over the endpoint, the cross-tier refusal and a bare GET refused by
-`csrfPrevention`, with Redis and the `User` model stubbed. That is what covers the dispatch middleware
-while the integration project cannot run; it is not a replacement for it.
+`csrfPrevention`, with Redis and the `User` model stubbed. It covers the dispatch middleware; it is not a
+replacement for the integration project.
 
-## Version control
+**Do not lower a threshold, and do not narrow `test:cov` to one project, to make it green.**
 
-**git**, branch `main`, **no remote** — like every other repo in this workspace, and its history starts
-with the commit that created it. **Never commit on `main`** — branch first
-(`git switch -c <type>/<slug>`), and merging is the user's decision alone.
+## Rules
 
-**Delete the local branch as soon as it is merged**: `git branch -d <slug>`, in the same breath as the
-merge, not at the top of the next task. Use `-d` and never `-D` — `-d` refuses a branch whose commits
-are not already reachable from where you stand, so the safe case succeeds quietly and the unsafe one
-stops you before the work is unreachable. Merges land locally here and are pushed as `main`, so no
-forge-side "delete branch on merge" ever fires; a merged branch stays until someone removes it, and
-`git branch` is the only place in-flight work is visible in a polyrepo this size. If the branch was
-pushed too, `git push origin --delete <slug>`, and only if that push was asked for in the first place.
+- **Never commit on `main`.** Branch first: `git switch -c <type>/<slug>`. Merge = user decision alone.
+- Merged → delete branch: `git branch -d <slug>`. `-d` only. `-D` never.
+- **No remote.** Push-on-request: no `git push` unless the user asked for it in that message.
+- **Never lower a coverage or mutation threshold, and never remove a gate.** Threshold miss → write the
+  missing test. Bypasses (`SKIP_QODANA=1`, `--no-verify`) are gate removals: use only when the user says so.
+- Tabs, not spaces. eslint + prettier both enforce.
+- English only — identifiers, comments, fixtures. No exception.
+- Domain query/mutation → **resource** svc. Token lifecycle → **authorization** svc.
 
-`git push` runs `.githooks/pre-push`, a blocking **four**-step gate: `yarn lint:check` (eslint, then
-`prettier --check`, both over the whole tree), then `yarn test:cov` (100% on every metric), then
-`yarn test:mutation` (Stryker, `thresholds.break: 100`), then Qodana (`./qodana.sh`, gated by
-`qodana.yaml`: coverage 100 total / 100 fresh, the SCA vulnerable-dependency check and the license
-audit). **Never lower a threshold** to get a push through — add the missing test. Keep the hook
-executable: git skips a non-executable hook with only a hint, so the gate disappears without ever
-failing.
+## Gates
 
-Lint is first because it is the cheapest and because it is the only one of the four that can fail on a
-file the others are perfectly happy with — the next `yarn lint` would rewrite it anyway. It was
-ungated for a long time, and so were `eslint.config.js`, `.prettierrc` and `.prettierignore`: none of
-the three was in the hook's `RELEVANT_PATHS`, so a commit touching only them skipped every gate there
-is. All three are in the filter now.
-
-`git commit` runs `.githooks/pre-commit`, which is the secret guard *and* three of those four — lint,
-coverage, Qodana. Mutation is pre-push only. Both hooks scan on purpose, and the pre-push one is not
-redundant: **`git merge --no-ff` never fires `pre-commit`** — git runs that hook for `git commit`
-only — so in the branch → commit → merge → push flow the merge commit, the one revision that actually
-reaches origin, is the single commit no pre-commit scan ever sees. Two individually clean branches can
-merge into a tree that is not.
-
-The second reason is Qodana Cloud. It files every report under the branch it was produced on, and
-pre-commit always runs on the feature branch *before* the commit exists — so a repo gated only there
-can never produce a `main`-tagged report, `main` is not offered as the project's default branch, and
-the "new problems" baseline has nothing stable to compare against. pre-push runs after the merge, on
-main, which is the revision the baseline wants. Both scans hand `qodana.sh` `SKIP_TESTS=1` so the
-coverage report the preceding gate just wrote is reused rather than regenerated with its exit code
-swallowed.
-
-Ahead of every gate the hook selects node, reading `engines.node` from `package.json` and switching via
-nvm. The gates shell out to yarn and yarn's `engines` check is a hard exit 1, so without it a push from
-a shell on the machine default node dies *before* the first gate, under that gate's banner — which is
-how a node mismatch first read as a type error. Every repo's `pre-push` carries that block, and so now
-does every `pre-commit`, since all of them run tests.
-
-Bypasses, in order of bluntness: `SKIP_QODANA=1` (scan only, coverage and mutation still gate) ·
-`git commit --no-verify` / `git push --no-verify` (the whole hook).
+commit → secret guard, lint, coverage, Qodana. push → same + mutation. All blocking. Why: `REPO.md`.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
