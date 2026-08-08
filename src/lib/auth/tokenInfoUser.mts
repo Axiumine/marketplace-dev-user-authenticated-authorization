@@ -1,6 +1,6 @@
-import { User } from '@thedoctorweb_agency/marketplace-common/models/MongoDB/User'
-import { IUserModel } from '@thedoctorweb_agency/marketplace-common/models/MongoDBInterfaces/IUserModel'
-import { findAccountForSession } from '@thedoctorweb_agency/marketplace-common/others/findAccountForSession'
+import { User } from '@axiumine/marketplace-common/models/MongoDB/User'
+import { IUserModel } from '@axiumine/marketplace-common/models/MongoDBInterfaces/IUserModel'
+import { findAccountForSession } from '@axiumine/marketplace-common/others/findAccountForSession'
 import { Types } from 'mongoose'
 
 /**
