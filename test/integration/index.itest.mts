@@ -3,6 +3,8 @@ import type { AddressInfo } from 'node:net'
 
 import { redisClient } from '@axiumine/koa-utils/dataSources/Redis'
 import { REFRESH_TOKEN_EXPIRY } from '@axiumine/koa-utils/lib/tokens'
+import { encryptDocument } from '@axiumine/marketplace-common/encryption/encryptDocument'
+import { ENCRYPTED_FIELDS_USER, KEY_ALT_NAME_USER } from '@axiumine/marketplace-common/encryption/encryptedFields'
 import { TIER } from '@axiumine/marketplace-common/others/Tier'
 import * as dotenv from 'dotenv'
 import type { Server } from 'http'
@@ -98,6 +100,10 @@ function track(key: string) {
  * `personalData` is absent because it is *not* one of them — a customer registers with an email and
  * a password and fills the rest in later, which is the divergence from `shopOwner` this seed has to
  * respect or the validator refuses the insert.
+ *
+ * ⚠️ `login.email` goes through `encryptDocument` first (ADR-029): the collection declares it
+ * `binData`, so a raw seed of plaintext is refused by the validator. `registeredAt` and the
+ * `disabled` / `deleted` flags the state-gate tests add are not personal data and stay in the clear.
  */
 async function seedUser(overrides: Record<string, unknown> = {}) {
 	const email = `itest-${randomUUID()}@marketplace.invalid`
@@ -105,12 +111,18 @@ async function seedUser(overrides: Record<string, unknown> = {}) {
 
 	await db()
 		.collection('user')
-		.insertOne({
-			_id,
-			login: { email, password: PASSWORD_HASH },
-			registeredAt: new Date(),
-			...overrides
-		})
+		.insertOne(
+			await encryptDocument(
+				{
+					_id,
+					login: { email, password: PASSWORD_HASH },
+					registeredAt: new Date(),
+					...overrides
+				},
+				ENCRYPTED_FIELDS_USER,
+				KEY_ALT_NAME_USER
+			)
+		)
 	seededIds.push(_id)
 
 	return { _id, email }
