@@ -3,15 +3,14 @@
 Backend svc 8 of 9. User tier, authorization concern. Port 4031, endpoint
 `/user-authenticated-authorization`. One mutation: `refresh`.
 
-**Read parent first** — `../../../CLAUDE.md`
-(<https://github.com/Axiumine/fullstack-marketplace-blueprint> if you are reading this on GitHub).
+**Read parent first** — [`../../../CLAUDE.md`](https://github.com/Axiumine/fullstack-marketplace-blueprint/blob/main/CLAUDE.md)
 Tier/concern split, port table, terminology, auth model live there. Not here.
 
 | Need | File |
 |---|---|
-| what this svc is, suite shape, env-repair history | `README.md` |
-| hook internals, gate order, node selection | `REPO.md` |
-| why the three authz svcs stay three | parent `docs/decisions/authorization-service-consolidation.md` |
+| what this svc is, suite shape, env-repair history | [`README.md`](./README.md) |
+| hook internals, gate order, node selection | [`REPO.md`](./REPO.md) |
+| why the three authz svcs stay three | parent [`docs/decisions/authorization-service-consolidation.md`](https://github.com/Axiumine/fullstack-marketplace-blueprint/blob/main/docs/decisions/authorization-service-consolidation.md) |
 
 Business queries → `marketplace-dev-user-authenticated-resource` (4032). Logout →
 `marketplace-dev-authenticated-logout` (4030), all three tiers.
@@ -89,7 +88,7 @@ replacement for the integration project.
 
 ## Gates
 
-commit → secret guard, lint, coverage, Qodana. push → same + mutation. All blocking. Why: `REPO.md`.
+commit → secret guard, lint, coverage, Qodana. push → same + mutation. All blocking. Why: [`REPO.md`](./REPO.md).
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
