@@ -15,14 +15,14 @@ It was copied from `marketplace-dev-authenticated-authorization` (4029) and the 
 2026-08-07 the shared part moved into `resolveAuthorizationSession`, `findAccountForSession` and
 `refreshSessionTokens`, while the three services, three ports and three crash domains stayed exactly as
 they were. The survey behind that choice — including the two options that were rejected and why — is
-`docs/decisions/authorization-service-consolidation.md` in the parent workspace.
+[`docs/decisions/authorization-service-consolidation.md`](https://github.com/Axiumine/fullstack-marketplace-blueprint/blob/main/docs/decisions/authorization-service-consolidation.md) in the parent workspace.
 
 Both directions are closed. The helpers are not to be re-inlined, and the three services are not to be
 merged into one: the merge is a decision the user has already taken, against.
 
 ## What remains here
 
-`CLAUDE.md` carries the three tier-specific differences in full — no onboarding, the hardcoded `TIER.user`
+[`CLAUDE.md`](./CLAUDE.md) carries the three tier-specific differences in full — no onboarding, the hardcoded `TIER.user`
 and its assertion order, and why `emailVerify.valid` is not re-checked on refresh.
 
 ## The suite
@@ -67,9 +67,9 @@ after `yarn test:cov` has written the lcov it reuses.
 
 | Topic | File |
 |---|---|
-| rules for agents working in this repo | `CLAUDE.md` |
-| git hooks, gate order, node selection | `REPO.md` |
-| the whole platform — tiers, ports, terminology | parent `CLAUDE.md` |
+| rules for agents working in this repo | [`CLAUDE.md`](./CLAUDE.md) |
+| git hooks, gate order, node selection | [`REPO.md`](./REPO.md) |
+| the whole platform — tiers, ports, terminology | parent [`CLAUDE.md`](./CLAUDE.md) |
 
 ## License
 
