@@ -8,7 +8,7 @@ Tier/concern split, port table, terminology, auth model live there. Not here.
 
 | Need | File |
 |---|---|
-| what this svc is, suite shape, env-repair history | [`README.md`](./README.md) |
+| what this svc is, suite shape | [`README.md`](./README.md) |
 | hook internals, gate order, node selection | [`REPO.md`](./REPO.md) |
 | why the three authz svcs stay three | parent [`docs/decisions/authorization-service-consolidation.md`](https://github.com/Axiumine/fullstack-marketplace-blueprint/blob/main/docs/decisions/authorization-service-consolidation.md) |
 
@@ -60,13 +60,12 @@ restatement of it. Middleware assigns with no cast; context type and helper cann
   signs and verifies with itself in its own suite — so a mismatch surfaces only as a 401 on every customer
   refresh, or as a service-to-service bypass that fails in both directions.
 - **A value containing whitespace must be quoted in the environment file, in single quotes.** dotenv
-  terminates a bare value at the first space, hands back the truncated prefix and reports no error — which
-  is how a keygrip key silently became a 76-character slice of its 89-character self. Not double quotes:
-  dotenv expands `\n` and `\r` escapes inside those.
+  terminates a bare value at the first space, hands back the truncated prefix and reports no error. Not
+  double quotes: dotenv expands `\n` and `\r` escapes inside those.
 
 ## Tests
 
-Eight files, 71 tests, 100% on all four coverage metrics, mutation score 100.
+100% on all four coverage metrics, mutation score 100.
 
 `index.unit.test.mts` boots the real server with `createServer()` on port 0 and drives `/health`, an
 unknown path, a signed refresh over the endpoint, the cross-tier refusal and a bare GET refused by
