@@ -5,6 +5,10 @@ import { redisClient } from '@axiumine/koa-utils/dataSources/Redis'
 import { REFRESH_TOKEN_EXPIRY } from '@axiumine/koa-utils/lib/tokens'
 import { encryptDocument } from '@axiumine/marketplace-common/encryption/encryptDocument'
 import { ENCRYPTED_FIELDS_USER, KEY_ALT_NAME_USER } from '@axiumine/marketplace-common/encryption/encryptedFields'
+import { hashSessionToken } from '@axiumine/marketplace-common/others/hashSessionToken'
+import { REFRESH_ATTEMPT_BUCKET, REFRESH_FAMILY_BUCKET } from '@axiumine/marketplace-common/others/refreshRateLimit'
+import { familyKey, sessionKey, tombstoneKey } from '@axiumine/marketplace-common/others/sessionKeys'
+import { sha256Hex } from '@axiumine/marketplace-common/others/sha256Hex'
 import { TIER } from '@axiumine/marketplace-common/others/Tier'
 import * as dotenv from 'dotenv'
 import type { Server } from 'http'
@@ -129,13 +133,38 @@ async function seedUser(overrides: Record<string, unknown> = {}) {
 }
 
 /**
+ * The three lineage fields a real login stamps (E14-S01), and which `assertRefreshLineage` refuses a
+ * session without — so, exactly like `tier`, a seed missing them is refused at the guard and every test
+ * past it would fail for a reason unrelated to what it asserts.
+ *
+ * The defaults describe a session opened just now with thirty days of rotations ahead of it, so nothing
+ * in this file trips the absolute cap by accident.
+ */
+function sessionLineage(over: Record<string, string> = {}) {
+	return { familyId: randomUUID(), originalLogin: `${Date.now()}`, sessionCapDays: '30', ...over }
+}
+
+/**
+ * The key a rate-limit counter lives under (E14-S08). Derived rather than written out as a literal,
+ * because the identities here are random per run — but the bucket names come from the policy file
+ * itself, so a renamed bucket fails this suite instead of quietly counting nothing.
+ */
+function rateLimitKey(bucket: string, identity: string) {
+	return `${process.env.REDIS_KEY}rl:${bucket}:${sha256Hex(identity)}`
+}
+
+/**
  * Seed a live refresh session pointing at `_id` and assert the request it carries is refused. Both
  * checkUserAuthorizationDisDel cases below reduce to exactly this and differ only in how the user
  * document was seeded, so the session-plus-assertion half is shared rather than written twice.
  */
 async function expectRefreshRejected(_id: mongoose.Types.ObjectId) {
 	const refresh = randomUUID()
-	await redisClient.hSet(track(`${REDIS_KEY}refresh:${refresh}`), { _id: _id.toHexString(), tier: TIER.user })
+	await redisClient.hSet(track(sessionKey(`refresh:${refresh}`)), {
+		_id: _id.toHexString(),
+		tier: TIER.user,
+		...sessionLineage()
+	})
 
 	const { status, json } = await gql('{ helloRefresh { txt } }', { cookie: signedCookie(refresh) })
 
@@ -240,8 +269,12 @@ describe('refresh-cookie gate over HTTP', () => {
 	// a single request, which no unit test can do.
 	it('answers 401 when the live session points at a user MongoDB does not have', async () => {
 		const refresh = randomUUID()
-		const refreshKey = `${REDIS_KEY}refresh:${refresh}`
-		await redisClient.hSet(refreshKey, { _id: new mongoose.Types.ObjectId().toHexString(), tier: TIER.user })
+		const refreshKey = sessionKey(`refresh:${refresh}`)
+		await redisClient.hSet(refreshKey, {
+			_id: new mongoose.Types.ObjectId().toHexString(),
+			tier: TIER.user,
+			...sessionLineage()
+		})
 
 		try {
 			const { status, json } = await gql('{ helloRefresh { txt } }', { cookie: signedCookie(refresh) })
@@ -268,9 +301,10 @@ describe('refresh-cookie gate over HTTP', () => {
 	it('answers 403 when the live session was minted for another tier', async () => {
 		const { _id } = await seedUser()
 		const refresh = randomUUID()
-		await redisClient.hSet(track(`${REDIS_KEY}refresh:${refresh}`), {
+		await redisClient.hSet(track(sessionKey(`refresh:${refresh}`)), {
 			_id: _id.toHexString(),
-			tier: TIER.shopOwner
+			tier: TIER.shopOwner,
+			...sessionLineage()
 		})
 
 		const { status, json } = await gql('{ helloRefresh { txt } }', { cookie: signedCookie(refresh) })
@@ -316,9 +350,15 @@ describe('refresh rotates the session on the cluster', () => {
 
 	it('writes the new pair, arms both TTLs, and deletes the refresh token it consumed', async () => {
 		const { _id, email } = await seedUser()
+		const lineage = sessionLineage()
 		const oldRefresh = randomUUID()
-		const oldRefreshKey = track(`${REDIS_KEY}refresh:${oldRefresh}`)
-		await redisClient.hSet(oldRefreshKey, { _id: _id.toHexString(), tier: TIER.user })
+		const oldRefreshKey = track(sessionKey(`refresh:${oldRefresh}`))
+		// A rotation writes two keys of its own beyond the new pair — the lineage's family set and the
+		// consumed token's tombstone, both with the refresh token's own 90-day TTL — so both are
+		// registered for the drain here, before the call that creates them, rather than after it.
+		const keyFamily = track(familyKey(lineage.familyId))
+		const keyTombstone = track(tombstoneKey(`refresh:${oldRefresh}`))
+		await redisClient.hSet(oldRefreshKey, { _id: _id.toHexString(), tier: TIER.user, ...lineage })
 
 		const { status, json, setCookie } = await gql(mutation, { cookie: signedCookie(oldRefresh) })
 
@@ -329,8 +369,8 @@ describe('refresh rotates the session on the cluster', () => {
 		// here rather than after the assertions below — a failing expect would otherwise strand the
 		// new refresh hash for its whole 90-day TTL.
 		const refreshed = json.data?.refresh as { status: boolean; accessToken: string }
-		const accessKey = track(`${REDIS_KEY}access:${refreshed.accessToken}`)
-		const newRefreshKey = track(`${REDIS_KEY}refresh:${refreshTokenFrom(setCookie)}`)
+		const accessKey = track(sessionKey(`access:${refreshed.accessToken}`))
+		const newRefreshKey = track(sessionKey(`refresh:${refreshTokenFrom(setCookie)}`))
 
 		expect(refreshed.status).toBe(true)
 		expect(refreshed.accessToken).not.toBe('')
@@ -340,7 +380,9 @@ describe('refresh rotates the session on the cluster', () => {
 		// refreshToken back off it. IRedisDataUser carries no onboarding fields — unlike the
 		// shopOwner tier — so the customer access hash is exactly {_id, email, tier}.
 		expect(await redisClient.hGetAll(accessKey)).toEqual({ _id: _id.toHexString(), email, tier: TIER.user })
-		expect(await redisClient.hGetAll(newRefreshKey)).toEqual({ _id: _id.toHexString(), tier: TIER.user })
+		// The lineage rides through the rotation unchanged — a family or a login date minted afresh here
+		// would hand the session an unlimited life one refresh at a time.
+		expect(await redisClient.hGetAll(newRefreshKey)).toEqual({ _id: _id.toHexString(), tier: TIER.user, ...lineage })
 
 		// Both expire() calls really ran, and ran *after* the hSet. A key whose TTL was armed
 		// before its fields would read -1 here.
@@ -351,6 +393,60 @@ describe('refresh rotates the session on the cluster', () => {
 
 		// One refresh token, one use.
 		expect(await redisClient.hGetAll(oldRefreshKey)).toEqual({})
+
+		// ⚠️ And the use left a marker (E14-S02). Without it a replay of the token just consumed is
+		// indistinguishable from ordinary expiry, which is the whole difference between "your session
+		// ended" and "someone else is holding your refresh token".
+		const tombstone = await redisClient.hGetAll(keyTombstone)
+		expect(tombstone.familyId).toBe(lineage.familyId)
+		expect(Number(tombstone.consumedAt)).toBeGreaterThan(Date.now() - 60_000)
+		expect(await redisClient.ttl(keyTombstone)).toBeGreaterThan(REFRESH_TOKEN_EXPIRY - 60)
+
+		// Both halves of the new pair are filed into the family the old session belonged to, which is
+		// what a revocation walks when this token is replayed.
+		expect((await redisClient.sMembers(keyFamily)).sort()).toEqual([accessKey, newRefreshKey].sort())
+		expect(await redisClient.ttl(keyFamily)).toBeGreaterThan(REFRESH_TOKEN_EXPIRY - 60)
+	})
+
+	/*
+	 * E14-S08 on the cluster, both buckets in one call. The per-token counter is armed by this service's
+	 * own middleware before the session is read; the per-family one by `refreshSessionTokens` as it mints.
+	 * A rotation that really happened must leave exactly one attempt and one mint counted.
+	 *
+	 * ⚠️ Neither counter may name the token or the key its session lives under. That is what the two
+	 * `not.toContain` lines below are for: a limiter that keyed on the token itself would put a live
+	 * credential into a key that outlives the request and is trivially listed by any operator.
+	 */
+	it('counts the attempt and the mint in their own two buckets', async () => {
+		const { _id } = await seedUser()
+		const lineage = sessionLineage()
+		const oldRefresh = randomUUID()
+		const oldRefreshKey = track(sessionKey(`refresh:${oldRefresh}`))
+		track(familyKey(lineage.familyId))
+		track(tombstoneKey(`refresh:${oldRefresh}`))
+		const attemptKey = track(rateLimitKey(REFRESH_ATTEMPT_BUCKET, hashSessionToken(`refresh:${oldRefresh}`)))
+		const mintKey = track(rateLimitKey(REFRESH_FAMILY_BUCKET, lineage.familyId))
+		await redisClient.hSet(oldRefreshKey, { _id: _id.toHexString(), tier: TIER.user, ...lineage })
+
+		const { status, json, setCookie } = await gql(mutation, { cookie: signedCookie(oldRefresh) })
+
+		expect(status).toBe(200)
+		const refreshed = json.data?.refresh as { accessToken: string }
+		track(sessionKey(`access:${refreshed.accessToken}`))
+		track(sessionKey(`refresh:${refreshTokenFrom(setCookie)}`))
+
+		// One attempt, over a minute.
+		expect(await redisClient.get(attemptKey)).toBe('1')
+		const attemptTtl = await redisClient.ttl(attemptKey)
+		expect(attemptTtl).toBeGreaterThan(0)
+		expect(attemptTtl).toBeLessThanOrEqual(60)
+
+		// One mint, over an hour.
+		expect(await redisClient.get(mintKey)).toBe('1')
+		expect(await redisClient.ttl(mintKey)).toBeGreaterThan(3540)
+
+		expect(attemptKey).not.toContain(oldRefresh)
+		expect(attemptKey).not.toContain(oldRefreshKey.slice((process.env.REDIS_KEY as string).length))
 	})
 })
 

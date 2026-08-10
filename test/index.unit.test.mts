@@ -15,13 +15,23 @@ const hGetAll = vi.fn()
 const hSet = vi.fn()
 const expire = vi.fn()
 const del = vi.fn()
+// The family set a rotation files its new pair into (E14-S02), and the counter plus its two window
+// commands behind both refresh rate limiters (E14-S08). Absent from this stub they are not "unused":
+// the middleware calls `incr` on every single request that gets past the cookie signature, so a stub
+// missing it answers 500 to the health check.
+const sAdd = vi.fn()
+const incr = vi.fn()
+const ttl = vi.fn()
 const findById = vi.fn()
 
 vi.mock('@sentry/node', () => ({ captureException, captureMessage }))
-// The four commands the refresh resolver and the authorization middleware actually call. The unit
+// The seven commands the refresh resolver and the authorization middleware actually call. The unit
 // project never connects to anything — `start()`'s failure path and the wire tests below both run
 // against these stubs.
-vi.mock('@axiumine/koa-utils/dataSources/Redis', () => ({ RedisConnect, redisClient: { hGetAll, hSet, expire, del } }))
+vi.mock('@axiumine/koa-utils/dataSources/Redis', () => ({
+	RedisConnect,
+	redisClient: { hGetAll, hSet, expire, del, sAdd, incr, ttl }
+}))
 vi.mock('@axiumine/koa-utils/dataSources/MongoDB', () => ({ MongoDBConnect }))
 // Mocked because the real one opens a ClientEncryption against a live cluster and reads a 96-byte
 // key file off disk (ADR-029) — neither exists in the unit project. What start() owes it is that it
@@ -345,8 +355,19 @@ describe('request dispatch', () => {
 		return { cookie: `refresh_token=${token}; refresh_token.sig=${signature}` }
 	}
 
+	/*
+	 * The lineage a real login stamps on every refresh hash (E14-S01) rides along on every fixture, because
+	 * `assertRefreshLineage` refuses a session without it — a fixture missing it is refused at the guard
+	 * and proves nothing about the dispatch each test is really about.
+	 */
 	function session(tier: string) {
-		return Object.assign(Object.create(null), { _id: String(userId), tier })
+		return Object.assign(Object.create(null), {
+			_id: String(userId),
+			tier,
+			familyId: '4b1a4a5e-0d3a-4a2f-9a5a-2f0f6a1b8c3d',
+			originalLogin: `${Date.now()}`,
+			sessionCapDays: '30'
+		})
 	}
 
 	beforeAll(async () => {
@@ -375,6 +396,11 @@ describe('request dispatch', () => {
 		hSet.mockReset().mockResolvedValue(undefined)
 		expire.mockReset().mockResolvedValue(undefined)
 		del.mockReset().mockResolvedValue(undefined)
+		sAdd.mockReset().mockResolvedValue(1)
+		// 1 is the first attempt of a window, which every test here is; -1 is "no TTL", read only when
+		// the limiter repairs a window it lost.
+		incr.mockReset().mockResolvedValue(1)
+		ttl.mockReset().mockResolvedValue(-1)
 		captureException.mockReset()
 	})
 
@@ -452,7 +478,14 @@ describe('request dispatch', () => {
 
 		// The refresh token this call was made with is deleted, so a stolen copy is worthless the
 		// moment the legitimate client uses it — rotation, not just re-issue.
-		expect(del).toHaveBeenCalledExactlyOnceWith(`test:refresh:${REFRESH}`)
+		//
+		// ⚠️ Both shapes go (E13-S02), each with its own single-key del: the hashed key this session was
+		// written under since E13-S01, and the raw key it would live under had it been minted before the
+		// cutover. Dropping only one of the two would leave the retired token still usable.
+		expect(del.mock.calls).toEqual([
+			['test:fd62e117b7af852f29f12e502a239d1b8f31afa959d463de0368d684452cefa5'],
+			[`test:refresh:${REFRESH}`]
+		])
 		expect(res.headers.getSetCookie().join(' ')).toContain('refresh_token')
 	})
 
@@ -480,5 +513,25 @@ describe('request dispatch', () => {
 		const res = await fetch(`${origin}${ENDPOINT}?query=%7BhelloRefresh%7Btxt%7D%7D`, { headers: serviceCall() })
 
 		expect(res.status).toBe(400)
+	})
+})
+
+// ⚠️ **`app.proxy` off is load-bearing, not an unset default nobody thought about.** With it off,
+// `ctx.ip` is the socket address — nginx's own — so no client address is reachable in this process
+// at all, which is the design: the per-caller rate limit is the edge's (`conf.d/20-rate-limit.conf`
+// keys its zones on `$binary_remote_addr` after `real_ip_header CF-Connecting-IP`), and nothing here
+// can write a visitor's address to Redis, to a log line or to Sentry. Turning it on would silently
+// start trusting `X-Forwarded-For` and start producing real addresses everywhere `ctx.ip` is read.
+// A comment cannot prevent that; this test can, and it is the reason the setting is never assigned.
+describe('app.proxy', () => {
+	it('is off on the constructed Koa app', async () => {
+		for (const k of REQUIRED_ENV_VARS) vi.stubEnv(k, 'x')
+
+		const { app, apolloServer } = await createServer()
+
+		expect(app.proxy).toBeFalsy()
+
+		await apolloServer.stop()
+		vi.unstubAllEnvs()
 	})
 })
