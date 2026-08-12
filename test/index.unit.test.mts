@@ -15,6 +15,8 @@ const hGetAll = vi.fn()
 const hSet = vi.fn()
 const expire = vi.fn()
 const del = vi.fn()
+const hExpire = vi.fn()
+const hDel = vi.fn()
 // The family set a rotation files its new pair into (E14-S02), and the counter plus its two window
 // commands behind both refresh rate limiters (E14-S08). Absent from this stub they are not "unused":
 // the middleware calls `incr` on every single request that gets past the cookie signature, so a stub
@@ -25,15 +27,18 @@ const ttl = vi.fn()
 const findById = vi.fn()
 const loadKeygrip = vi.fn()
 const watchKeygrip = vi.fn()
+const assertHashFieldTTLSupport = vi.fn()
 
 // The connection watchKeygrip subscribes on. Identifiable for the same reason redisClient is: the
 // assertion that matters is that it is the DUPLICATE and not the shared client.
 const subscriber = { id: 'redis-subscriber', connect: vi.fn() }
 
-// The seven commands the refresh resolver and the authorization middleware actually call, as one named
-// object rather than an inline literal: since ADR-034 start() hands this very client to loadKeygrip, and
-// the boot-order test asserts it received THIS one rather than merely something object-shaped.
-const redisClient = { hGetAll, hSet, expire, del, sAdd, incr, ttl, duplicate: vi.fn(() => subscriber) }
+// The commands the refresh resolver and the authorization middleware actually call, as one named object
+// rather than an inline literal: since ADR-034 start() hands this very client to loadKeygrip, and the
+// boot-order test asserts it received THIS one rather than merely something object-shaped. `hExpire` and
+// `hDel` joined them with E15-S03 — the rotation arms the successor's field and unfiles the predecessor's,
+// so a stub without them answers 500 to every refresh that gets past the signature.
+const redisClient = { hGetAll, hSet, expire, del, hExpire, hDel, sAdd, incr, ttl, duplicate: vi.fn(() => subscriber) }
 
 // Two 64-byte keys, newest first, exactly as loadKeygrip answers. Written as bytes: nothing here is a
 // real signing key, and the pair has to be distinguishable so the order can be asserted. Distinct from
@@ -71,6 +76,11 @@ vi.mock('@axiumine/marketplace-common/others/loadKeygrip', () => ({ loadKeygrip 
 // fake store. What start() owes it is the right arguments and the two callbacks, asserted below by
 // calling them.
 vi.mock('@axiumine/marketplace-common/others/watchKeygrip', () => ({ watchKeygrip }))
+// Mocked because the real one issues an `hTTL` against a live server, which the unit project has not got.
+// Its own behaviour — which error is translated and which is rethrown untouched — is unit-tested in
+// marketplace-common. What start() owes it is the shared client, a position before anything else uses the
+// connection, and a refusal as fatal as a datasource failure; all three are asserted below.
+vi.mock('@axiumine/marketplace-common/others/assertHashFieldTTLSupport', () => ({ assertHashFieldTTLSupport }))
 vi.mock('@lib/db/disconnectAllDatabases.mjs', () => ({ disconnectAllDatabases }))
 
 // Imported dynamically inside beforeAll, not with a top-level `await import`: src/index.mts
@@ -297,6 +307,7 @@ describe('start (failure path)', () => {
 		RedisConnect.mockReset()
 		MongoDBConnect.mockReset().mockResolvedValue(undefined)
 		setupFieldEncryption.mockReset().mockResolvedValue(undefined)
+		assertHashFieldTTLSupport.mockReset().mockResolvedValue(undefined)
 		loadKeygrip.mockReset().mockResolvedValue({ version: 1, fp: 'c77808de4139', keys: KEYGRIP_KEYS })
 		watchKeygrip.mockReset().mockResolvedValue(undefined)
 		subscriber.connect.mockReset().mockResolvedValue(undefined)
@@ -368,6 +379,29 @@ describe('start (failure path)', () => {
 		expect(disconnectAllDatabases).toHaveBeenCalledWith(1)
 	})
 
+	/*
+	 * ⚠️ **A Redis without hash-field TTLs is a Redis this service cannot refresh anybody on** (E15-S03).
+	 * Every rotation it serves files the successor session under its account and arms an `HEXPIRE` on that
+	 * field, and Redis answers an unknown command at first use rather than at startup — so without this
+	 * refusal the process comes up green, verifies tokens all morning, and fails the first refresh by
+	 * logging the customer out of a session that was still valid.
+	 */
+	it('reports to Sentry and disconnects with code 1 when the server has no hash-field TTLs', async () => {
+		const error = new Error(
+			'Redis is older than 7.4.0: hash-field TTLs (HEXPIRE/HTTL) are missing, and the session index cannot prune itself without them. See docker-DBs/README.md §Redis.'
+		)
+		assertHashFieldTTLSupport.mockRejectedValueOnce(error)
+
+		await start()
+
+		// Refused before the keys are even read: nothing else touches the connection first, so the log
+		// carries the version problem and not whatever the next step made of it.
+		expect(loadKeygrip).not.toHaveBeenCalled()
+		expect(errorLog).toHaveBeenCalledExactlyOnceWith('error', error)
+		expect(captureException).toHaveBeenCalledWith(error)
+		expect(disconnectAllDatabases).toHaveBeenCalledWith(1)
+	})
+
 	// A service that came up with field encryption broken would answer queries with ciphertext and
 	// write plaintext beside it, so this failure has to be as fatal as a datasource failure.
 	it('reports to Sentry and disconnects with code 1 when field encryption cannot start', async () => {
@@ -390,6 +424,7 @@ describe('start (success path)', () => {
 		RedisConnect.mockReset().mockResolvedValue(undefined)
 		MongoDBConnect.mockReset().mockResolvedValue(undefined)
 		setupFieldEncryption.mockReset().mockResolvedValue(undefined)
+		assertHashFieldTTLSupport.mockReset().mockResolvedValue(undefined)
 		loadKeygrip.mockReset().mockResolvedValue({ version: 1, fp: 'c77808de4139', keys: KEYGRIP_KEYS })
 		watchKeygrip.mockReset().mockResolvedValue(undefined)
 		subscriber.connect.mockReset().mockResolvedValue(undefined)
@@ -423,6 +458,23 @@ describe('start (success path)', () => {
 		// Once, with no arguments: it reads its configuration from the environment, and a caller that
 		// passed it anything would be building a second source of truth for the master key path.
 		expect(setupFieldEncryption).toHaveBeenCalledExactlyOnceWith()
+
+		await server?.apolloServer.stop()
+		info.mockRestore()
+	})
+
+	/*
+	 * The probe runs on the shared client — the one every session read and every rotation uses — and it runs
+	 * before the keygrip is unwrapped, so a version refusal is the first thing in the log rather than the
+	 * third. Handing it a duplicate would prove a connection this service never writes sessions on.
+	 */
+	it('probes the server for hash-field TTLs on the shared client, before anything else uses it', async () => {
+		const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+		const server = await start()
+
+		expect(assertHashFieldTTLSupport).toHaveBeenCalledExactlyOnceWith(redisClient)
+		expect(assertHashFieldTTLSupport.mock.invocationCallOrder[0]).toBeLessThan(loadKeygrip.mock.invocationCallOrder[0])
 
 		await server?.apolloServer.stop()
 		info.mockRestore()
@@ -592,6 +644,8 @@ describe('request dispatch', () => {
 		hSet.mockReset().mockResolvedValue(undefined)
 		expire.mockReset().mockResolvedValue(undefined)
 		del.mockReset().mockResolvedValue(undefined)
+		hExpire.mockReset().mockResolvedValue([1])
+		hDel.mockReset().mockResolvedValue(1)
 		sAdd.mockReset().mockResolvedValue(1)
 		// 1 is the first attempt of a window, which every test here is; -1 is "no TTL", read only when
 		// the limiter repairs a window it lost.
