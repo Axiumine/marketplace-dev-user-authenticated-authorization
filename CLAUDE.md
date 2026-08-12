@@ -55,10 +55,11 @@ restatement of it. Middleware assigns with no cast; context type and helper cann
 - **`refresh` rotates rather than re-issues.** The refresh token the call was made with is deleted, so a
   stolen copy is worthless the moment the legitimate client refreshes. The wire test asserts the exact
   `del` key.
-- **`KEYGRIP_KEY_1` / `KEYGRIP_KEY_2` must equal `marketplace-dev-public-authorization`'s**, and
-  `INTROSPECTION_CODE` must equal the other eight services'. Nothing tests either pairing — each service
-  signs and verifies with itself in its own suite — so a mismatch surfaces only as a 401 on every customer
-  refresh, or as a service-to-service bypass that fails in both directions.
+- **`INTROSPECTION_CODE` must equal the other eight services'.** Nothing tests the pairing — each service
+  signs and verifies with itself in its own suite — so a mismatch surfaces only as a service-to-service
+  bypass that fails in both directions. The cookie-signing keys used to need the same hand agreement with
+  `marketplace-dev-public-authorization`; since ADR-034 they do not, because both read the one Redis
+  record at `<REDIS_KEY>keygrip` and a service that cannot unwrap it refuses to boot (E01-S15).
 - **A value containing whitespace must be quoted in the environment file, in single quotes.** dotenv
   terminates a bare value at the first space, hands back the truncated prefix and reports no error. Not
   double quotes: dotenv expands `\n` and `\r` escapes inside those.

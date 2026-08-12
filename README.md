@@ -43,8 +43,11 @@ which is why they are worth recording:
 
 - `KEYGRIP_KEY_1` / `KEYGRIP_KEY_2` did not match `marketplace-dev-public-authorization`'s. That service
   is where `loginUser` signs the customer's refresh cookie and this one has to verify the signature, so
-  with different keys every customer refresh returned 401 — and no test covers the pairing, because each
-  service signs and verifies with itself in its own suite.
+  with different keys every customer refresh returned 401 — and no test covered the pairing, because each
+  service signs and verifies with itself in its own suite. ⚠️ **This failure cannot recur and the two
+  variables no longer exist** (ADR-034, E01-S15): every signing service unwraps the same Redis record at
+  `<REDIS_KEY>keygrip` with `KEYGRIP_KEK`, and one that cannot refuses to boot rather than signing with
+  keys of its own.
 - `MONGODB_URI` pointed at `testRnApollo`, a leftover database from that other project, with no
   `authSource`. The `user` collection the migrations create lives in `dbMarketplaceDev`.
 - `INTROSPECTION_CODE` differed from the seven other services', which breaks the service-to-service bypass
