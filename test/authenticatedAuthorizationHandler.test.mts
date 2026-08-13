@@ -177,8 +177,15 @@ describe('authenticatedAuthorizationHandler', () => {
 		await authenticatedAuthorizationHandler(keys)(ctx, next)
 
 		// Even when the record carries onboarding fields, none of them reaches the session.
+		//
+		// `accessKey` is here and holds `undefined`: `resolveAuthorizationSession` carries the field through
+		// whether or not the stored hash had one, so a session minted before E14-S06 arrives with the key
+		// present and empty — "nothing to retire", which is exactly how the rotation reads it. It is listed
+		// rather than filtered out because this assertion is a whitelist of what a customer session may
+		// contain, and a field appearing in it silently would defeat the point of the test.
 		expect(Object.keys(ctx.state.user).sort()).toEqual([
 			'_id',
+			'accessKey',
 			'email',
 			'familyId',
 			'originalLogin',
