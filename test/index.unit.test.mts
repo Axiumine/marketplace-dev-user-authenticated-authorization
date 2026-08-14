@@ -759,13 +759,10 @@ describe('request dispatch', () => {
 		// The refresh token this call was made with is deleted, so a stolen copy is worthless the
 		// moment the legitimate client uses it — rotation, not just re-issue.
 		//
-		// ⚠️ Both shapes go (E13-S02), each with its own single-key del: the hashed key this session was
-		// written under since E13-S01, and the raw key it would live under had it been minted before the
-		// cutover. Dropping only one of the two would leave the retired token still usable.
-		expect(del.mock.calls).toEqual([
-			['test:fd62e117b7af852f29f12e502a239d1b8f31afa959d463de0368d684452cefa5'],
-			[`test:refresh:${REFRESH}`]
-		])
+		// ⚠️ One shape goes, and one is enough since E13-S10: the hashed key is the only name a session has.
+		// The second del this rotation used to issue named the pre-cutover raw key, and it left with the
+		// fallback that could read it — a round trip per refresh against a key nothing can write.
+		expect(del).toHaveBeenCalledExactlyOnceWith('test:fd62e117b7af852f29f12e502a239d1b8f31afa959d463de0368d684452cefa5')
 		expect(res.headers.getSetCookie().join(' ')).toContain('refresh_token')
 	})
 
