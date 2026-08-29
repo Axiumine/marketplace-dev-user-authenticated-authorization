@@ -443,7 +443,7 @@ describe('refresh rotates the session on the cluster', () => {
 	 *
 	 * ⚠️ Neither counter may name the token or the key its session lives under. That is what the two
 	 * `not.toContain` lines below are for: a limiter that keyed on the token itself would put a live
-	 * credential into a key that outlives the request and is trivially listed by any operator.
+	 * credential into a key that outlives the request and is trivially listed by any admin.
 	 */
 	it('counts the attempt and the mint in their own two buckets', async () => {
 		const { _id } = await seedUser()

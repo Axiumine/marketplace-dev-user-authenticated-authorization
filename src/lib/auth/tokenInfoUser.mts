@@ -11,7 +11,7 @@ import { Types } from 'mongoose'
  *
  * ⚠️ **Three fields fewer than `tokenInfoShopOwner`, and the difference is the whole tier.** That one
  * projects `login.firstLogin`, `login.onboardingStep` and `login.onboardingDone` because a shop owner
- * is walked through a multi-step onboarding an operator can interrupt. A customer has none: there is
+ * is walked through a multi-step onboarding an admin can interrupt. A customer has none: there is
  * no step to resume, `IRedisDataUserCommon` has no field to put one in, and `firstLogin` is read only
  * to decide whether that onboarding starts from the top. The projection therefore stays at this call
  * site rather than moving into the shared helper — it is the one part that genuinely differs per tier.
