@@ -1,0 +1,26 @@
+// Every read shape this service depends on, and the one thing this rule must never refuse: the
+// enforcement itself. The refresh projection carries `disabled` so that `findAccountForSession` can
+// re-run `checkUserAuthorizationDisDel` over it, which is what ends a suspended customer's session
+// within one access-token lifetime. A rule firing on a read would fire on the reason the flag works.
+
+// marketplace-dev-user-authenticated-authorization/src/lib/auth/tokenInfoUser.mts — a space-separated
+// string, not an object.
+export const refreshProjection = '_id login.email deleted disabled'
+
+// The comparison the gate makes, and the destructure a caller writes over the document it just read.
+export const isSuspended = (user: Record<string, unknown>) => user.disabled === true
+
+export const suspensionOf = (user: { disabled?: boolean; disabledReason?: string }) => {
+	const { disabled, disabledReason } = user
+
+	return disabled === true ? disabledReason : undefined
+}
+
+// The interface the projection is typed against, where a widened read lands first.
+export interface IUserDisabledCheck {
+	disabled?: boolean
+	disabledReason?: string
+}
+
+// Both names in prose, the way ADR-044 and this repo's own comments write them: disabled, disabledBy.
+export const boundary = 'the Admin tier owns disabled and disabledReason; this tier only reads them'

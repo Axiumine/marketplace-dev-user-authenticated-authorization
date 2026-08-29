@@ -335,7 +335,11 @@ describe('refresh-cookie gate over HTTP', () => {
 	// itself — so this is the one test that proves the real marketplace-common gate actually rejects
 	// a `disabled: true` document read back out of the real database, not a stub standing in for it.
 	it('answers 401 when the live session points at a user MongoDB has marked disabled', async () => {
-		const { _id } = await seedUser({ disabled: true })
+		// ⚠️ The reason travels with the flag because the collection demands it: ADR-044 added
+		// `dependencies: { disabled: ['disabledReason'] }` to the validator, so a seed carrying the flag
+		// alone is refused by the server and this test would prove nothing. `seedUser` encrypts it on the
+		// way in like every other personal path, by spreading the overrides before it encrypts.
+		const { _id } = await seedUser({ disabled: true, disabledReason: 'itest suspension' })
 		// Read the seed back through the raw driver before the request runs: without this, a 401
 		// here would be equally consistent with the insert having silently failed (tokenInfoUser's
 		// own null-document branch throws the exact same throwUnauthorizedError()), which would prove

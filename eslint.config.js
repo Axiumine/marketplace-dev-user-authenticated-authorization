@@ -36,6 +36,42 @@ const KEYGRIP_KEY_NO_ENV_READ = [
 	}
 ]
 
+/*
+ * ADR-044. Suspension is the operator's instrument end to end: the Admin tier raises it, and the Admin
+ * tier is the only hand that lifts it. A customer-tier service able to write any `disabled*` field could
+ * clear a sanction standing against the very account whose token it is renewing.
+ *
+ * ⚠️ **A write ban, not a ban, and here that is not a nicety.** This service reads the flag: the refresh
+ * projection in `tokenInfoUser` carries `disabled`, `findAccountForSession` re-runs
+ * `checkUserAuthorizationDisDel` over it on every refresh, and that read is what ends a suspended
+ * customer's session within one access-token lifetime. A rule refusing the read would refuse the
+ * enforcement. Hence four write shapes and no read shape: the object-literal key a `$set` is built from,
+ * the same key quoted, and both assignment forms (`user.disabled = false`, `user['disabled'] = false`),
+ * which is the shape the E12-S04 audit actually found for `rejectUnauthorized` and which a
+ * `Property`-only rule passes.
+ *
+ * `ObjectExpression >` rather than a bare `Property`, because an `ObjectPattern` is a `Property` too and
+ * destructuring the flag off a document that was just read is a read. The collateral this accepts is the
+ * object form of a Mongoose projection — `.select({ disabled: 1 })` is indistinguishable from a `$set`
+ * at this level and is refused with it. Nothing here uses that form: every projection in this service is
+ * the space-separated string, which no selector below touches.
+ *
+ * The three names are `user`'s real ones, from `BEs/marketplace-db-setup/lib/schemas/account.js`. There
+ * is no `disabledAt` — ADR-044 names one in prose as a shape it would also cover, and the schema never
+ * grew it, so banning the name would be banning nothing.
+ *
+ * Scoped to `src/**` where it is used below: the integration suite seeds a suspended customer to prove
+ * the gate refuses one, and a seed is an object literal like any other.
+ */
+const DISABLED_NO_WRITE = [
+	{
+		selector:
+			'ObjectExpression > Property[key.name=/^disabled(By|Reason)?$/], ObjectExpression > Property[key.value=/^disabled(By|Reason)?$/], AssignmentExpression[left.property.name=/^disabled(By|Reason)?$/], AssignmentExpression[left.property.value=/^disabled(By|Reason)?$/]',
+		message:
+			"ADR-044: `disabled`, `disabledBy` and `disabledReason` are the Admin tier's to write, never this tier's — a service that could raise or clear a suspension could lift a sanction standing against itself, and the platform owner's ruling is that only an operator removes one. A self-service closure stamps `deleted` and stops. The reads stay legal: checkUserAuthorizationDisDel at login and findAccountForSession on every refresh are what enforce the flag."
+	}
+]
+
 /* Hoisted so both config objects below can share it — see the note above the second one. */
 const RESTRICTED_SYNTAX = [
 	{
@@ -156,13 +192,13 @@ export default [
 			'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX]
 		}
 	},
-	// The keygrip ban rides on top of the shared entries rather than replacing them: a second config
+	// The two narrow bans ride on top of the shared entries rather than replacing them: a second config
 	// object naming the same rule discards the first one's options for every file it matches, so
 	// dropping the spread would silently un-ban every Sentry and TLS selector inside src/**.
 	{
 		files: ['src/**/*.mts'],
 		rules: {
-			'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX, ...KEYGRIP_KEY_NO_ENV_READ]
+			'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX, ...KEYGRIP_KEY_NO_ENV_READ, ...DISABLED_NO_WRITE]
 		}
 	}
 ]
