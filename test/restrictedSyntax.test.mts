@@ -136,7 +136,7 @@ describe('the KEYGRIP_KEY_ ban is scoped to src/**', () => {
  * ADR-044, the same scoping shape as the keygrip ban above and for the reason the approval gate uses one
  * tier over.
  *
- * Suspension is the operator's instrument at both ends: the Admin tier raises it and the Admin tier is
+ * Suspension is the admin's instrument at both ends: the Admin tier raises it and the Admin tier is
  * the only hand that lifts it. A service on this tier able to write any `disabled*` field could clear a
  * sanction standing against the account whose token it is renewing.
  *

@@ -283,7 +283,7 @@ describe('authenticatedAuthorizationHandler', () => {
 	})
 
 	// E17-S05: the same revocation, from a tombstone that does name its account. The trail is what the
-	// operator console reads, so what lands in it — and what must never land in it — is asserted here.
+	// admin console reads, so what lands in it — and what must never land in it — is asserted here.
 	it('files the replay on the account trail, with no token anywhere in the line', async () => {
 		hGetAll
 			.mockResolvedValueOnce({})
