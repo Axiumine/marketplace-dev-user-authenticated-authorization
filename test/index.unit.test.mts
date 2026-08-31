@@ -144,7 +144,7 @@ describe('checkRequiredEnv', () => {
 	 * a `toContain` passes an addition, so neither notices the change. The order is asserted too — the
 	 * boot names the *first* missing variable, and that is the one an admin goes looking for.
 	 */
-	it('requires exactly these 16 variables, in this order', () => {
+	it('requires exactly these 15 variables, in this order', () => {
 		expect(REQUIRED_ENV_VARS).toStrictEqual([
 			'PORT',
 			'KEYGRIP_KEK',
@@ -160,8 +160,7 @@ describe('checkRequiredEnv', () => {
 			'REDIS_KEY',
 			'MONGODB_URI',
 			'CSFLE_MASTER_KEY_PATH',
-			'CSFLE_KEY_VAULT_NAMESPACE',
-			'INTROSPECTION_CODE'
+			'CSFLE_KEY_VAULT_NAMESPACE'
 		])
 	})
 
@@ -183,13 +182,13 @@ describe('checkRequiredEnv', () => {
 	 * MONGODB_URI — start() calls MongoDBConnect(), so without the guard a missing URI surfaces as a
 	 * driver error from inside the try, reported to Sentry and exited 1, instead of one line before
 	 * anything connects.
-	 * INTROSPECTION_CODE — the service-to-service bypass compares the header against
-	 * `${process.env.INTROSPECTION_CODE}`, which stringifies an unset value to 'undefined' and admits
-	 * any caller sending that literal string.
+	 * CSFLE_KEY_VAULT_NAMESPACE — ADR-029, and the last entry in the list: a service that booted
+	 * without it reads no personal field at all, and every query that touches one throws at its first
+	 * use instead of at startup.
 	 */
-	it('requires MONGODB_URI and INTROSPECTION_CODE by name', () => {
+	it('requires MONGODB_URI and CSFLE_KEY_VAULT_NAMESPACE by name', () => {
 		expect(REQUIRED_ENV_VARS).toContain('MONGODB_URI')
-		expect(REQUIRED_ENV_VARS).toContain('INTROSPECTION_CODE')
+		expect(REQUIRED_ENV_VARS).toContain('CSFLE_KEY_VAULT_NAMESPACE')
 	})
 
 	/*
@@ -627,7 +626,6 @@ describe('request dispatch', () => {
 
 	const userId = new Types.ObjectId('507f1f77bcf86cd799439011')
 	const REFRESH = '27119032-9043-4a9f-bd4c-9d06fd576290'
-	const INTROSPECTION = { 'x-introspectioncode': 'test-introspection-code' }
 	// Two keys, because Keygrip rotates: the first signs, any of them verifies.
 	const KEYS = ['a'.repeat(64), 'b'.repeat(64)]
 
@@ -689,19 +687,18 @@ describe('request dispatch', () => {
 		captureException.mockReset()
 	})
 
-	// ⚠️ **The introspection code alone is not a credential on this service**, unlike the resource
-	// ones. It is consulted only *after* `verifySignedRefreshToken` has already returned a token, so
-	// a service-to-service caller still needs a properly signed cookie; what the code then buys it is
-	// permission to proceed with no session behind that cookie. Hence the pairing in every test
-	// below, and the explicit 412 test further down.
-	function serviceCall() {
-		hGetAll.mockResolvedValueOnce({})
+	// ⚠️ Auth runs before dispatch on this service, so a request whose point is `/health` or the 404
+	// arm still needs a whole credential: a signed cookie, a session on the cluster and an `_id` that
+	// names a real customer. Both mocks are consumed once, exactly as each request below reads them once.
+	function authenticatedCall() {
+		hGetAll.mockResolvedValueOnce(session('user'))
+		findById.mockReturnValueOnce({ lean: async () => ({ _id: userId, login: { email: 'cliente@marketplace.test' } }) })
 
-		return { ...signedCookie(), ...INTROSPECTION }
+		return signedCookie()
 	}
 
 	it('answers the health check on /health', async () => {
-		const res = await fetch(`${origin}/health`, { headers: serviceCall() })
+		const res = await fetch(`${origin}/health`, { headers: authenticatedCall() })
 
 		expect(res.status).toBe(200)
 		await expect(res.json()).resolves.toMatchObject({ status: 'OK' })
@@ -711,7 +708,7 @@ describe('request dispatch', () => {
 	// 404. Nothing else is mounted — this service has no REST surface at all, and the only three REST
 	// endpoints on the platform live on the public resource service.
 	it('answers 404 on any other path', async () => {
-		const res = await fetch(`${origin}/anything-else`, { headers: serviceCall() })
+		const res = await fetch(`${origin}/anything-else`, { headers: authenticatedCall() })
 
 		expect(res.status).toBe(404)
 	})
@@ -723,16 +720,6 @@ describe('request dispatch', () => {
 		const res = await fetch(`${origin}/health`)
 
 		expect(res.status).toBe(412)
-	})
-
-	// The bypass is narrower here than the header's name suggests, and this pins it: an
-	// x-introspectioncode with no cookie is still 412. The code stands in for a *session*, never for
-	// the signature — so a leaked code alone cannot be replayed against this service.
-	it('does not let the introspection code stand in for a missing cookie', async () => {
-		const res = await fetch(`${origin}/health`, { headers: INTROSPECTION })
-
-		expect(res.status).toBe(412)
-		expect(hGetAll).not.toHaveBeenCalled()
 	})
 
 	// A cookie whose signature does not verify under either key. 401, and note it never reaches
@@ -792,7 +779,7 @@ describe('request dispatch', () => {
 	// preflight-forcing headers. This is why the frontends set `preferGetMethod: false` on urql: at
 	// the default, every query short enough to fit in a URL fails while mutations work.
 	it('refuses a bare GET on the endpoint', async () => {
-		const res = await fetch(`${origin}${ENDPOINT}?query=%7BhelloRefresh%7Btxt%7D%7D`, { headers: serviceCall() })
+		const res = await fetch(`${origin}${ENDPOINT}?query=%7BhelloRefresh%7Btxt%7D%7D`, { headers: authenticatedCall() })
 
 		expect(res.status).toBe(400)
 	})

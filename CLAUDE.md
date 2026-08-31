@@ -66,18 +66,12 @@ restatement of it. Middleware assigns with no cast; context type and helper cann
 
 ## Traps
 
-- **The introspection bypass is narrower here than in the resource services.** It is consulted only
-  *after* `verifySignedRefreshToken` has returned a token, so an `x-introspectioncode` with no cookie is
-  still a 412. The code stands in for a *session*, never for the signature, and a leaked code alone cannot
-  be replayed. `index.unit.test.mts` asserts both halves.
 - **`refresh` rotates rather than re-issues.** The refresh token the call was made with is deleted, so a
   stolen copy is worthless the moment the legitimate client refreshes. The wire test asserts the exact
   `del` key.
-- **`INTROSPECTION_CODE` must equal the other eight services'.** Nothing tests the pairing — each service
-  signs and verifies with itself in its own suite — so a mismatch surfaces only as a service-to-service
-  bypass that fails in both directions. The cookie-signing keys used to need the same hand agreement with
-  `marketplace-dev-public-authorization`; since ADR-034 they do not, because both read the one Redis
-  record at `<REDIS_KEY>keygrip` and a service that cannot unwrap it refuses to boot.
+- **The cookie-signing keys need no hand agreement with `marketplace-dev-public-authorization`.** They
+  used to; since ADR-034 both read the one Redis record at `<REDIS_KEY>keygrip`, and a service that
+  cannot unwrap it refuses to boot rather than signing with keys of its own.
 - **A value containing whitespace must be quoted in the environment file, in single quotes.** dotenv
   terminates a bare value at the first space, hands back the truncated prefix and reports no error. Not
   double quotes: dotenv expands `\n` and `\r` escapes inside those.

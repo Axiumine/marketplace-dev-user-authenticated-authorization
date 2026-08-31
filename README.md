@@ -38,7 +38,7 @@ empty, so `assertTestMongoEnv` refused to build a URL. They are filled in now, a
 they authenticate as were provisioned with the loop in `marketplace-db-setup/setup/mongodb.js` — dropping
 `dbMarketplaceTestUserAuthz` does **not** remove them, MongoDB keeps users in `admin.system.users`.
 
-Three more keys in the same file were wrong rather than missing. Each failed somewhere far from its cause,
+Two more keys in the same file were wrong rather than missing. Each failed somewhere far from its cause,
 which is why they are worth recording:
 
 - `KEYGRIP_KEY_1` / `KEYGRIP_KEY_2` did not match `marketplace-dev-public-authorization`'s. That service
@@ -50,8 +50,6 @@ which is why they are worth recording:
   keys of its own.
 - `MONGODB_URI` pointed at `testRnApollo`, a leftover database from that other project, with no
   `authSource`. The `user` collection the migrations create lives in `dbMarketplaceDev`.
-- `INTROSPECTION_CODE` differed from the seven other services', which breaks the service-to-service bypass
-  in both directions.
 
 ## Qodana
 
