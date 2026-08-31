@@ -17,8 +17,8 @@ const expire = vi.fn()
 const del = vi.fn()
 const hExpire = vi.fn()
 const hDel = vi.fn()
-// The family set a rotation files its new pair into (E14-S02), and the counter plus its two window
-// commands behind both refresh rate limiters (E14-S08). Absent from this stub they are not "unused":
+// The family set a rotation files its new pair into, and the counter plus its two window
+// commands behind both refresh rate limiters. Absent from this stub they are not "unused":
 // the middleware calls `incr` on every single request that gets past the cookie signature, so a stub
 // missing it answers 500 to the health check.
 const sAdd = vi.fn()
@@ -36,8 +36,8 @@ const subscriber = { id: 'redis-subscriber', connect: vi.fn() }
 // The commands the refresh resolver and the authorization middleware actually call, as one named object
 // rather than an inline literal: since ADR-034 start() hands this very client to loadKeygrip, and the
 // boot-order test asserts it received THIS one rather than merely something object-shaped. `hExpire` and
-// `hDel` joined them with E15-S03 — the rotation arms the successor's field and unfiles the predecessor's,
-// so a stub without them answers 500 to every refresh that gets past the signature.
+// `hDel` joined them with the session index — the rotation arms the successor's field and unfiles the
+// predecessor's, so a stub without them answers 500 to every refresh that gets past the signature.
 const redisClient = { hGetAll, hSet, expire, del, hExpire, hDel, sAdd, incr, ttl, duplicate: vi.fn(() => subscriber) }
 
 // Two 64-byte keys, newest first, exactly as loadKeygrip answers. Written as bytes: nothing here is a
@@ -142,7 +142,7 @@ describe('checkRequiredEnv', () => {
 	 * fails later, at a request, somewhere that does not name the cause; a name added here and read
 	 * nowhere makes every environment carry a value that does nothing. A length check passes a swap and
 	 * a `toContain` passes an addition, so neither notices the change. The order is asserted too — the
-	 * boot names the *first* missing variable, and that is the one an admin goes looking for. E18-S03.
+	 * boot names the *first* missing variable, and that is the one an admin goes looking for.
 	 */
 	it('requires exactly these 16 variables, in this order', () => {
 		expect(REQUIRED_ENV_VARS).toStrictEqual([
@@ -423,7 +423,7 @@ describe('start (failure path)', () => {
 	})
 
 	/*
-	 * ⚠️ **A Redis without hash-field TTLs is a Redis this service cannot refresh anybody on** (E15-S03).
+	 * ⚠️ **A Redis without hash-field TTLs is a Redis this service cannot refresh anybody on**.
 	 * Every rotation it serves files the successor session under its account and arms an `HEXPIRE` on that
 	 * field, and Redis answers an unknown command at first use rather than at startup — so without this
 	 * refusal the process comes up green, verifies tokens all morning, and fails the first refresh by
@@ -639,7 +639,7 @@ describe('request dispatch', () => {
 	}
 
 	/*
-	 * The lineage a real login stamps on every refresh hash (E14-S01) rides along on every fixture, because
+	 * The lineage a real login stamps on every refresh hash rides along on every fixture, because
 	 * `assertRefreshLineage` refuses a session without it — a fixture missing it is refused at the guard
 	 * and proves nothing about the dispatch each test is really about.
 	 */
@@ -764,7 +764,7 @@ describe('request dispatch', () => {
 		// The refresh token this call was made with is deleted, so a stolen copy is worthless the
 		// moment the legitimate client uses it — rotation, not just re-issue.
 		//
-		// ⚠️ One shape goes, and one is enough since E13-S10: the hashed key is the only name a session has.
+		// ⚠️ One shape goes, and one is enough: the hashed key is the only name a session has.
 		// The second del this rotation used to issue named the pre-cutover raw key, and it left with the
 		// fallback that could read it — a round trip per refresh against a key nothing can write.
 		expect(del).toHaveBeenCalledExactlyOnceWith('test:fd62e117b7af852f29f12e502a239d1b8f31afa959d463de0368d684452cefa5')
@@ -851,7 +851,7 @@ describe('the signing keys', () => {
  * variable has to travel out of `start()` to the caller instead of being swallowed into the
  * disconnect-and-exit that handles a datasource failure — and it must get there before anything has
  * connected, because a datasource handle left half-open by a boot nobody completed is a connection
- * the pool goes on holding. E18-S03.
+ * the pool goes on holding.
  */
 describe('start (missing environment)', () => {
 	afterEach(() => {

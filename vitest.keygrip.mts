@@ -24,8 +24,8 @@ export const ITEST_REDIS_KEY = 'marketplaceDev:itest:userAuthenticatedAuthorizat
  * could be mistaken for one, or copied into an environment file.
  *
  * One key, not two. The array is what `Keygrip` verifies against, and a suite that seeded two would be
- * asserting nothing the single-key case does not already prove; rotation is E01-S13's story and seeds
- * its own.
+ * asserting nothing the single-key case does not already prove; key rotation is tested where it happens
+ * and seeds its own.
  */
 export const ITEST_KEYGRIP_KEYS = [
 	{ id: 'itest-k1', material: Buffer.alloc(64, 42).toString('base64'), createdAt: '2026-08-12T00:00:00.000Z' }

@@ -45,7 +45,7 @@ which is why they are worth recording:
   is where `loginUser` signs the customer's refresh cookie and this one has to verify the signature, so
   with different keys every customer refresh returned 401 — and no test covered the pairing, because each
   service signs and verifies with itself in its own suite. ⚠️ **This failure cannot recur and the two
-  variables no longer exist** (ADR-034, E01-S15): every signing service unwraps the same Redis record at
+  variables no longer exist** (ADR-034): every signing service unwraps the same Redis record at
   `<REDIS_KEY>keygrip` with `KEYGRIP_KEK`, and one that cannot refuses to boot rather than signing with
   keys of its own.
 - `MONGODB_URI` pointed at `testRnApollo`, a leftover database from that other project, with no
