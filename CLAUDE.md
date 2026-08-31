@@ -77,7 +77,7 @@ restatement of it. Middleware assigns with no cast; context type and helper cann
   signs and verifies with itself in its own suite — so a mismatch surfaces only as a service-to-service
   bypass that fails in both directions. The cookie-signing keys used to need the same hand agreement with
   `marketplace-dev-public-authorization`; since ADR-034 they do not, because both read the one Redis
-  record at `<REDIS_KEY>keygrip` and a service that cannot unwrap it refuses to boot (E01-S15).
+  record at `<REDIS_KEY>keygrip` and a service that cannot unwrap it refuses to boot.
 - **A value containing whitespace must be quoted in the environment file, in single quotes.** dotenv
   terminates a bare value at the first space, hands back the truncated prefix and reports no error. Not
   double quotes: dotenv expands `\n` and `\r` escapes inside those.

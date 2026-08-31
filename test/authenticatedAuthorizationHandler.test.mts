@@ -7,11 +7,11 @@ import type { IContextUserAuthenticatedAuthorization } from '../src/lib/auth/ICo
 const hGetAll = vi.fn()
 /*
  * `incr` counts two different things, and which one it counted is the assertion. It is the per-token
- * attempt limiter (E14-S08), which runs on every call, and it is the grace counter (E14-S04), which runs
+ * attempt limiter, which runs on every call, and it is the grace counter, which runs
  * only on a replay inside the window. So the steady-state tests pin the key it was called with rather
  * than that it was never called: the limiter must have counted once, and nothing else may have.
  *
- * It counted a third thing until E13-S10 — `dual-read-hits`, the fallback that let a pre-cutover session
+ * It counted a third thing once — `dual-read-hits`, the fallback that let a pre-cutover session
  * resolve. The assertions below are unchanged by its removal, which is the point of having written them
  * as an exact call list rather than as a count.
  */
@@ -20,14 +20,14 @@ const incr = vi.fn()
 // only when it finds a counter that has somehow lost one.
 const expire = vi.fn()
 const ttl = vi.fn()
-// The two commands a family revocation needs (E14-S02): every session filed under the lineage is read
+// The two commands a family revocation needs: every session filed under the lineage is read
 // back, then deleted one key at a time. Only the replay test reaches them; a mock without them fails that
 // test with `store.sMembers is not a function` rather than with the refusal it is asserting.
 const sMembers = vi.fn()
 const del = vi.fn()
 const tokenInfoUser = vi.fn()
 
-// The two the reuse trail adds on top of them (E17-S05) — `expire` is the third and the limiter already
+// The two the reuse trail adds on top of them — `expire` is the third and the limiter already
 // needs it. Only a revocation the tombstone could attribute to an account reaches these.
 const lPush = vi.fn()
 const lTrim = vi.fn()
@@ -41,12 +41,12 @@ const { authenticatedAuthorizationHandler } = await import('../src/lib/auth/auth
 
 const keys = new Keygrip(['test-key-1', 'test-key-2'], 'sha512', 'base64')
 const REFRESH = '27119032-9043-4a9f-bd4c-9d06fd576290'
-// The key that session is written under since E13-S01: the prefix plus the SHA-256 of `refresh:` + it.
+// The key that session is written under: the prefix plus the SHA-256 of `refresh:` + it.
 const HASHED_KEY = 'test:fd62e117b7af852f29f12e502a239d1b8f31afa959d463de0368d684452cefa5'
 // A real 24-hex ObjectId: the handler feeds redData._id straight into new Types.ObjectId().
 const OID = '507f1f77bcf86cd799439011'
 /*
- * The key the pre-lookup attempt limiter counts under (E14-S08): the prefix, `rl:`, the bucket name, and
+ * The key the pre-lookup attempt limiter counts under: the prefix, `rl:`, the bucket name, and
  * the SHA-256 of the session digest above — the token hashed a second time. Neither the token nor the key
  * its session lives under is recoverable from it, which is the reason for the second hash. Computed
  * outside this file like every other digest here, so a mutated algorithm cannot agree with itself.
@@ -54,7 +54,7 @@ const OID = '507f1f77bcf86cd799439011'
 const RATE_LIMIT_KEY = 'test:rl:refresh:token:0b45c6eb3aa4d66a24e7557de17465a30810fc8ec9a90337d016db0e67d2e3c5'
 
 /*
- * The lineage every refresh hash has carried since E14-S01, and which `assertRefreshLineage` refuses a
+ * The lineage every refresh hash carries, and which `assertRefreshLineage` refuses a
  * session without: a family the rotations of one login share, the instant that login happened, and the
  * number of days it may go on rotating for. The clock is frozen so `originalLogin` can be a literal —
  * a session stamped `Date.now()` at fixture-build time would age between the fixture and the assertion.
@@ -62,7 +62,7 @@ const RATE_LIMIT_KEY = 'test:rl:refresh:token:0b45c6eb3aa4d66a24e7557de17465a308
 const NOW = 1_754_784_000_000
 const LINEAGE = { familyId: '4b1a4a5e-0d3a-4a2f-9a5a-2f0f6a1b8c3d', originalLogin: `${NOW - 1000}`, sessionCapDays: '30' }
 /*
- * The reuse tombstone the rotation leaves behind for the token it consumed (E14-S02) and the family set it
+ * The reuse tombstone the rotation leaves behind for the token it consumed, and the family set it
  * names. The tombstone is the session digest again, under the `used:` namespace — same digest as
  * `HASHED_KEY`, so a replay finds the marker in the slot the session vacated.
  */
@@ -145,7 +145,7 @@ describe('authenticatedAuthorizationHandler', () => {
 
 		await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).resolves.toBe('next')
 
-		// ⚠️ A digest, not the token (E13-S01). The `refresh:` prefix is inside the hashed value, and the
+		// ⚠️ A digest, not the token. The `refresh:` prefix is inside the hashed value, and the
 		// literal is computed elsewhere so a mutated algorithm cannot make this test agree with itself.
 		expect(hGetAll).toHaveBeenCalledExactlyOnceWith(HASHED_KEY)
 		expect(HASHED_KEY).not.toContain(REFRESH)
@@ -182,10 +182,11 @@ describe('authenticatedAuthorizationHandler', () => {
 		// Even when the record carries onboarding fields, none of them reaches the session.
 		//
 		// `accessKey` is here and holds `undefined`: `resolveAuthorizationSession` carries the field through
-		// whether or not the stored hash had one, so a session minted before E14-S06 arrives with the key
-		// present and empty — "nothing to retire", which is exactly how the rotation reads it. It is listed
-		// rather than filtered out because this assertion is a whitelist of what a customer session may
-		// contain, and a field appearing in it silently would defeat the point of the test.
+		// whether or not the stored hash had one, so a session minted before the rotation began stamping it
+		// arrives with the key present and empty — "nothing to retire", which is exactly how the rotation
+		// reads it. It is listed rather than filtered out because this assertion is a whitelist of what a
+		// customer session may contain, and a field appearing in it silently would defeat the point of the
+		// test.
 		expect(Object.keys(ctx.state.user).sort()).toEqual([
 			'_id',
 			'accessKey',
@@ -251,7 +252,7 @@ describe('authenticatedAuthorizationHandler', () => {
 	})
 
 	/*
-	 * E14-S02, and the case with the widest blast radius in this file: a refresh token is consumed by the
+	 * The case with the widest blast radius in this file: a refresh token is consumed by the
 	 * rotation that accepted it, so a *second* presentation of the same token is either a client that lost
 	 * a multi-tab race or a copy somebody else is holding. Past the ten-second grace window it is read as
 	 * the second, and the answer is not "this token is refused" — it is the whole lineage revoked, every
@@ -262,7 +263,7 @@ describe('authenticatedAuthorizationHandler', () => {
 	 */
 	// AB-07: a refresh token presented a second time is refused, and its family revoked with it
 	it('refuses a replayed refresh token and takes its whole lineage down with it', async () => {
-		// Hashed key, then the tombstone: two reads since E13-S10, and only the second answers anything.
+		// Hashed key, then the tombstone: two reads, and only the second answers anything.
 		hGetAll.mockResolvedValueOnce({}).mockResolvedValueOnce({ familyId: LINEAGE.familyId, consumedAt: `${NOW - 60_000}` })
 		sMembers.mockResolvedValueOnce([HASHED_KEY, 'test:some-access-key'])
 
@@ -275,14 +276,15 @@ describe('authenticatedAuthorizationHandler', () => {
 		// One key per `del` (BCON-08), members first and the set itself last: dropping the set before its
 		// members would leave every session it named live and unreachable.
 		expect(del.mock.calls).toEqual([[HASHED_KEY], ['test:some-access-key'], [FAMILY_KEY]])
-		// This tombstone predates E17-S05 and names no account, so the revocation still happens and only the
-		// reuse event is lost. Fail-soft: an unattributable marker must never keep a leaked lineage alive.
+		// This tombstone predates the reuse trail and names no account, so the revocation still happens
+		// and only the reuse event is lost. Fail-soft: an unattributable marker must never keep a leaked
+		// lineage alive.
 		expect(lPush).not.toHaveBeenCalled()
 		expect(tokenInfoUser).not.toHaveBeenCalled()
 		expect(next).not.toHaveBeenCalled()
 	})
 
-	// E17-S05: the same revocation, from a tombstone that does name its account. The trail is what the
+	// The same revocation, from a tombstone that does name its account. The trail is what the
 	// admin console reads, so what lands in it — and what must never land in it — is asserted here.
 	it('files the replay on the account trail, with no token anywhere in the line', async () => {
 		hGetAll
@@ -304,7 +306,7 @@ describe('authenticatedAuthorizationHandler', () => {
 				at: `${NOW}`
 			})
 		)
-		// Fifty entries, thirty days: the two bounds E17-S05 states, arriving on the same append.
+		// Fifty entries, thirty days: the two bounds the reuse trail is held to, arriving on the same append.
 		expect(lTrim).toHaveBeenCalledExactlyOnceWith(TRAIL_KEY, 0, 49)
 		expect(expire).toHaveBeenCalledWith(TRAIL_KEY, 2_592_000)
 		expect(lPush.mock.calls[0][1]).not.toContain(REFRESH)
@@ -343,10 +345,10 @@ describe('authenticatedAuthorizationHandler', () => {
 	})
 
 	/*
-	 * E13-S11, and until E18-S02 it was tested in the four services that were not this one. The bypass is a
-	 * development convenience and outside `development` and `test` it does not exist: the gate is read
-	 * before the code is, so the configured value is never consulted and the header is worth exactly what a
-	 * header nobody sent is worth.
+	 * Until the auth-boundary contract, this was tested in the four services that were not this one. The
+	 * bypass is a development convenience and outside `development` and `test` it does not exist: the gate
+	 * is read before the code is, so the configured value is never consulted and the header is worth
+	 * exactly what a header nobody sent is worth.
 	 */
 	describe('outside the environment allowlist', () => {
 		afterEach(() => {
@@ -398,7 +400,7 @@ describe('authenticatedAuthorizationHandler', () => {
 	})
 
 	/*
-	 * E14-S08. Two limiters guard the refresh endpoint and this is the pre-lookup one, the only one that
+	 * Two limiters guard the refresh endpoint and this is the pre-lookup one, the only one that
 	 * ever meters a token resolving to nothing: garbage, expired, tombstoned. A token that names no family
 	 * never reaches the per-family limiter inside `refreshSessionTokens` at all, so unless the count
 	 * happens here, guessing is free.

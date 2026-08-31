@@ -140,7 +140,7 @@ async function seedUser(overrides: Record<string, unknown> = {}) {
 }
 
 /**
- * The three lineage fields a real login stamps (E14-S01), and which `assertRefreshLineage` refuses a
+ * The three lineage fields a real login stamps, and which `assertRefreshLineage` refuses a
  * session without — so, exactly like `tier`, a seed missing them is refused at the guard and every test
  * past it would fail for a reason unrelated to what it asserts.
  *
@@ -152,7 +152,7 @@ function sessionLineage(over: Record<string, string> = {}) {
 }
 
 /**
- * The key a rate-limit counter lives under (E14-S08). Derived rather than written out as a literal,
+ * The key a rate-limit counter lives under. Derived rather than written out as a literal,
  * because the identities here are random per run — but the bucket names come from the policy file
  * itself, so a renamed bucket fails this suite instead of quietly counting nothing.
  */
@@ -402,7 +402,7 @@ describe('refresh rotates the session on the cluster', () => {
 		expect(await redisClient.hGetAll(accessKey)).toEqual({ _id: _id.toHexString(), email, tier: TIER.user })
 		// The lineage rides through the rotation unchanged — a family or a login date minted afresh here
 		// would hand the session an unlimited life one refresh at a time — and the successor names the
-		// access token minted beside it (E14-S06), asserted as the very key read two lines above: that
+		// access token minted beside it, asserted as the very key read two lines above: that
 		// field is what lets the next rotation, and every logout, find the access half without being
 		// handed it in a header.
 		expect(await redisClient.hGetAll(newRefreshKey)).toEqual({
@@ -422,7 +422,7 @@ describe('refresh rotates the session on the cluster', () => {
 		// One refresh token, one use.
 		expect(await redisClient.hGetAll(oldRefreshKey)).toEqual({})
 
-		// ⚠️ And the use left a marker (E14-S02). Without it a replay of the token just consumed is
+		// ⚠️ And the use left a marker. Without it a replay of the token just consumed is
 		// indistinguishable from ordinary expiry, which is the whole difference between "your session
 		// ended" and "someone else is holding your refresh token".
 		const tombstone = await redisClient.hGetAll(keyTombstone)
@@ -437,7 +437,7 @@ describe('refresh rotates the session on the cluster', () => {
 	})
 
 	/*
-	 * E14-S08 on the cluster, both buckets in one call. The per-token counter is armed by this service's
+	 * Both rate-limit buckets on the cluster, in one call. The per-token counter is armed by this service's
 	 * own middleware before the session is read; the per-family one by `refreshSessionTokens` as it mints.
 	 * A rotation that really happened must leave exactly one attempt and one mint counted.
 	 *
