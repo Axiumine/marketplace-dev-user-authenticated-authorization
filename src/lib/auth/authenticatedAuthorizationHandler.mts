@@ -16,8 +16,8 @@ dotenv.config()
 /******************
  * receives the refresh token, which carries only the user's _id — not everything the access token holds!
  *
- * The lookup, the tier assertion, the introspection bypass and the shape of the session are shared with
- * the shop-owner and admin authorization services and live in `resolveAuthorizationSession`. What
+ * The lookup, the tier assertion and the shape of the session are shared with the shop-owner and
+ * admin authorization services and live in `resolveAuthorizationSession`. What
  * stays here is the only part that is genuinely this tier's: which collection the `_id` is read from.
  *
  * ⚠️ No `makeOnboardingData` and no `onboardingStep`, unlike the ShopOwner service this was copied
@@ -41,27 +41,16 @@ export const authenticatedAuthorizationHandler =
 		// has already been checked above, so a caller with no valid cookie never gets this far either.
 		await guardRefreshAttempt(redisClient, refreshToken)
 
-		const session = await resolveAuthorizationSession<IRedisDataUserCommon>({
+		ctx.state.user = await resolveAuthorizationSession<IRedisDataUserCommon>({
 			store: redisClient,
 			refreshToken,
 			tier: TIER.user,
-			// `ctx.request.header` cannot be nullish here: verifySignedRefreshToken() (above, inside
-			// refreshToken) already returned without throwing, and it only does that after successfully
-			// reading `ctx.request.header?.cookie` as a defined string — which is impossible unless
-			// `ctx.request.header` is itself a defined object. The `?.` below can therefore never
-			// short-circuit on any reachable input. Equivalent mutant.
-			// Stryker disable next-line OptionalChaining: header is provably defined here, see comment above
-			introspectionCode: ctx.request.header?.['x-introspectioncode'],
 			readSessionData: async (_id) => {
 				const user = await tokenInfoUser(_id)
 
 				return { email: user.login.email }
 			}
 		})
-
-		// `null` means the session had expired and the request carried a valid introspection code, so it
-		// goes through with no `ctx.state.user` at all — a service-to-service call has no account behind it.
-		if (session !== null) ctx.state.user = session
 
 		return next()
 	}
