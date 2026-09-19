@@ -9,145 +9,54 @@ Tier/concern split, port table, terminology, auth model live there. Not here.
 | Need | File |
 |---|---|
 | what this svc is, suite shape | [`README.md`](./README.md) |
-| hook internals, gate order, node selection | [`REPO.md`](./REPO.md) |
+| hook internals, gate order, node selection, mutation-gate rationale, the ShopOwner-svc diff, unit suite | [`REPO.md`](./REPO.md) |
 | why the three authz svcs stay three | parent [`docs/decisions/authorization-service-consolidation.md`](https://github.com/Axiumine/fullstack-marketplace-blueprint/blob/main/docs/decisions/authorization-service-consolidation.md) |
+| GitNexus rules, this repo's registry name (`marketplace-dev-user-authenticated-authorization`) | [`AGENTS.md`](./AGENTS.md) |
 
 Business queries → `marketplace-dev-user-authenticated-resource` (4032). Logout →
 `marketplace-dev-authenticated-logout` (4030), all three tiers.
 
 ## ⚠️ NEVER run the mutation gate by hand
 
-`yarn test:mutation` is **hook-only**. It runs when the `pre-push` hook calls it and at no other time —
-not to check a change, not before a commit, not on one file, not to confirm a survivor is fixed. Do not
-invoke `stryker` directly either.
+`yarn test:mutation` is **hook-only** — `pre-push` calls it, nothing else does, not even to check one
+file or confirm a survivor is fixed. Never invoke `stryker` directly either. Rationale and how to
+reproduce a survivor without running the gate: [`REPO.md`](./REPO.md).
 
-This does not weaken anything: the threshold stays 100, `pre-push` still blocks, and no survivor is ever
-answered by lowering a number. What changes is **who starts the run**. A full pass costs tens of minutes
-and holds the whole machine at 28 workers while it lasts, so an on-demand run is time taken from the
-person waiting for the work.
+## ⚠️ Decided, not re-openable
 
-Go through the package script if a run is ever authorised — never `npx stryker run`, which skips whatever
-the script sets up around it.
-
-A survivor is answered by writing the test it names and letting the next push run the gate. If a mutant
-has to be reproduced first, apply it by hand in the source and run `yarn test` — that is seconds, it
-names the tests that should have failed, and it costs nobody the machine.
-
-## Decided, not re-openable
-
-⚠️ **Most of this service's body lives in `marketplace-common`, deliberately. Do not re-inline the
-helpers, and do not go the other way and merge the three authorization services into one.** The merge is
-a decision the user has already taken, against. The survey behind it, including the two rejected
-alternatives, is the decision doc named above.
-
-## Not a rename of the ShopOwner service
-
-Copied from 4029. Three differences, none of them an omission to "correct" back:
-
-- **No onboarding.** The ShopOwner svc imports `makeOnboardingData` and branches on `login.onboardingStep`
-  / `login.onboardingDone` / `login.firstLogin`. A customer has none → `tokenInfoUser` projects three
-  fields fewer than `tokenInfoShopOwner`, access-token hash is `_id`, `email`, `tier` and nothing else, and
-  `IRedisDataUserCommon` has nowhere to put a step.
-- **`TIER.user`**, hardcoded at the one `resolveAuthorizationSession` call, which asserts it. All nine svcs
-  share one `REDIS_KEY` prefix, so a well-formed refresh session found under this key may have been minted
-  for another tier. The assertion runs *before* the `_id` is looked up: that lookup is not a substitute, it
-  only fails by accident, when the foreign id happens not to exist in `user` too. A session with no `tier`
-  predates the discriminator and is refused as well — fail closed. `assertTier` itself moved into the
-  shared helper in 4.4.0; the *constant* stays here, because a svc that could be told its own tier by a
-  caller asserts nothing.
-- **`emailVerify.valid` is not re-checked on refresh.** `loginUser` on 4028 refuses to mint a session for
-  an unconfirmed address in the first place, and nothing on the platform ever un-confirms one. `deleted`
-  and `disabled` *can* flip after login, which is why `checkUserAuthorizationDisDel` runs on every refresh:
-  it makes disabling an account take effect within one access-token lifetime instead of one refresh-token
-  lifetime.
-
-`ctx.state.user` = `TAuthorizationSession<IRedisDataUserCommon>` — the helper's own return type, not a
-restatement of it. Middleware assigns with no cast; context type and helper cannot drift.
+Most of this service's body lives in `marketplace-common`, deliberately. **Do not re-inline the helpers,
+and do not merge the three authorization services into one** — that merge is a decision the user has
+already taken, against. Full survey: [`README.md`](./README.md).
 
 ## Traps
 
 - **`refresh` rotates rather than re-issues.** The refresh token the call was made with is deleted, so a
   stolen copy is worthless the moment the legitimate client refreshes. The wire test asserts the exact
   `del` key.
-- **The cookie-signing keys need no hand agreement with `marketplace-dev-public-authorization`.** They
-  used to; since ADR-034 both read the one Redis record at `<REDIS_KEY>keygrip`, and a service that
-  cannot unwrap it refuses to boot rather than signing with keys of its own.
+- **`TIER.user` is asserted, not trusted from the session.** A session with no `tier`, or the wrong one,
+  is refused — fail closed. Do not remove the assertion or read it as redundant with the `_id` lookup.
+- **The cookie-signing keys need no hand agreement with `marketplace-dev-public-authorization`.** Since
+  ADR-034 both read the one Redis record at `<REDIS_KEY>keygrip`; a service that cannot unwrap it refuses
+  to boot rather than signing with keys of its own.
 - **A value containing whitespace must be quoted in the environment file, in single quotes.** dotenv
-  terminates a bare value at the first space, hands back the truncated prefix and reports no error. Not
-  double quotes: dotenv expands `\n` and `\r` escapes inside those.
+  truncates a bare value at the first space with no error, and double quotes expand `\n`/`\r` escapes.
 
-## Tests
+## Tests & gates
 
-100% on all four coverage metrics, mutation score 100.
-
-`index.unit.test.mts` boots the real server with `createServer()` on port 0 and drives `/health`, an
-unknown path, a signed refresh over the endpoint, the cross-tier refusal and a bare GET refused by
-`csrfPrevention`, with Redis and the `User` model stubbed. It covers the dispatch middleware; it is not a
-replacement for the integration project.
-
-**Do not lower a threshold, and do not narrow `test:cov` to one project, to make it green.**
+100% on all four coverage metrics, mutation score 100 — never narrow `test:cov` to one project to make it
+green (rule below). Suite internals: [`REPO.md`](./REPO.md). commit → secret guard, lint, coverage,
+Qodana. push → same + semgrep (SAST) + trivy (dependency advisories) + mutation, all blocking. Why:
+[`REPO.md`](./REPO.md).
 
 ## Rules
 
 - **Never commit on `main`.** Branch first: `git switch -c <type>/<slug>`. Merge = user decision alone.
 - Merged → delete branch: `git branch -d <slug>`. `-d` only. `-D` never.
-- **No remote.** Push-on-request: no `git push` unless the user asked for it in that message.
+- **No remote. Push-on-request:** no `git push` unless the user asked for it in that message.
 - **Never lower a coverage or mutation threshold, and never remove a gate.** Threshold miss → write the
   missing test. Bypasses (`SKIP_QODANA=1`, `--no-verify`) are gate removals: use only when the user says so.
-- Tabs, not spaces. eslint + prettier both enforce.
-- English only — identifiers, comments, fixtures. No exception.
+- **Tabs, not spaces.** eslint + prettier both enforce.
+- **English only** — identifiers, comments, fixtures. No exception.
 - Domain query/mutation → **resource** svc. Token lifecycle → **authorization** svc.
-
-## Gates
-
-commit → secret guard, lint, coverage, Qodana. push → same + semgrep (SAST) + trivy (dependency
-advisories) + mutation. All blocking. Why: [`REPO.md`](./REPO.md).
-
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
-
-This project is indexed by GitNexus as **marketplace-dev-user-authenticated-authorization**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
-
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
-
-## Always Do
-
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
-
-## Never Do
-
-- NEVER edit a function, class, or method without first running `impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit changes without running `detect_changes()` to check affected scope.
-
-## Resources
-
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/marketplace-dev-user-authenticated-authorization/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/marketplace-dev-user-authenticated-authorization/clusters` | All functional areas |
-| `gitnexus://repo/marketplace-dev-user-authenticated-authorization/processes` | All execution flows |
-| `gitnexus://repo/marketplace-dev-user-authenticated-authorization/process/{name}` | Step-by-step execution trace |
-
-## Cross-Repo Groups
-
-This repository is listed under GitNexus **group(s): marketplace-platform** (see `~/.gitnexus/groups/`). For cross-repo analysis, use MCP tools `impact`, `query`, and `context` with `repo` set to `@<groupName>` or `@<groupName>/<memberPath>` (paths match keys in that group’s `group.yaml`). Use `group_list` / `group_sync` for membership and sync. From the project root: `node .gitnexus/run.cjs group list`, `node .gitnexus/run.cjs group sync <name>`, `node .gitnexus/run.cjs group impact <name> --target <symbol> --repo <group-path>` (the `.gitnexus/run.cjs` path is repo-root-relative).
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
+- **Run `impact({target, repo})` before editing a symbol and `detect_changes()` before committing**;
+  `repo:` is mandatory and must be a `marketplace*` registry name.
