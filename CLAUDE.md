@@ -21,6 +21,8 @@ Business queries → `marketplace-dev-user-authenticated-resource` (4032). Logou
 `yarn test:mutation` is **hook-only** — `pre-push` calls it, nothing else does, not even to check one
 file or confirm a survivor is fixed. Never invoke `stryker` directly either. Rationale and how to
 reproduce a survivor without running the gate: [`REPO.md`](./REPO.md).
+⚠️ Since ADR-055 the script has a second caller, `.github/workflows/gates.yml`, which runs it on
+every pull request — two callers, both automated, and a hand is neither.
 
 ## ⚠️ Decided, not re-openable
 
