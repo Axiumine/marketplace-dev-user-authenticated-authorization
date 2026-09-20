@@ -3,9 +3,8 @@
 // test against. Neither can move. A `vi.mock` block is hoisted to the top of the file that declares it, so
 // the mock declarations underneath cannot be imported from a shared module either.
 
+import type { IContextUserAuthenticatedAuthorization } from '@lib/auth/IContextUserAuthenticatedAuthorization.mjs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { IContextUserAuthenticatedAuthorization } from '../src/lib/auth/IContextUserAuthenticatedAuthorization.mts'
 
 const hSet = vi.fn()
 const expire = vi.fn()
