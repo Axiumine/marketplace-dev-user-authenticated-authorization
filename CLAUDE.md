@@ -44,8 +44,8 @@ already taken, against. Full survey: [`README.md`](./README.md).
 ## Tests & gates
 
 100% on all four coverage metrics, mutation score 100 — never narrow `test:cov` to one project to make it
-green (rule below). Suite internals: [`REPO.md`](./REPO.md). commit → secret guard, lint, coverage,
-Qodana. push → same + semgrep (SAST) + trivy (dependency advisories) + mutation, all blocking. Why:
+green (rule below). Suite internals: [`REPO.md`](./REPO.md). commit → secret guard, lint, types,
+coverage, Qodana. push → same + semgrep (SAST) + trivy (dependency advisories) + mutation, all blocking. Why:
 [`REPO.md`](./REPO.md).
 
 ## Rules

@@ -1,8 +1,7 @@
+import type { IContextUserAuthenticatedAuthorization } from '@lib/auth/IContextUserAuthenticatedAuthorization.mjs'
 import Keygrip from 'keygrip'
 import type { Next } from 'koa'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { IContextUserAuthenticatedAuthorization } from '../src/lib/auth/IContextUserAuthenticatedAuthorization.mts'
 
 const hGetAll = vi.fn()
 /*
@@ -203,12 +202,12 @@ describe('authenticatedAuthorizationHandler', () => {
 		// another tier is findable under this key. Before the tier discriminator existed it was simply
 		// accepted. These three cases are that hole, and they must fail closed.
 		it.each([
-			['shopOwner', 'a ShopOwner refresh session'],
-			['admin', 'an Admin refresh session'],
-			[null, 'a session minted before the tier field existed']
+			{ tier: 'shopOwner', description: 'a ShopOwner refresh session' },
+			{ tier: 'admin', description: 'an Admin refresh session' },
+			{ tier: null, description: 'a session minted before the tier field existed' }
 			// AB-02: a session minted for another tier is refused with 403, not 401
 			// AB-03: a session carrying no tier at all is refused — fail closed, never a wildcard
-		])('refuses %s (%s)', async (tier) => {
+		])('refuses $tier ($description)', async ({ tier }) => {
 			hGetAll.mockResolvedValueOnce(redisSession(OID, tier))
 
 			const ctx = makeCtx({ cookie: signedCookie() })
