@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 const captureException = vi.fn()
 const captureMessage = vi.fn()
+const flush = vi.fn()
 const RedisConnect = vi.fn()
 const MongoDBConnect = vi.fn()
 const disconnectAllDatabases = vi.fn()
@@ -56,7 +57,7 @@ const ROTATED_KEYS = [
 	...KEYGRIP_KEYS
 ]
 
-vi.mock('@sentry/node', () => ({ captureException, captureMessage }))
+vi.mock('@sentry/node', () => ({ captureException, captureMessage, flush }))
 // The unit project never connects to anything — `start()`'s failure path and the wire tests below both
 // run against these stubs.
 vi.mock('@axiumine/koa-utils/dataSources/Redis', () => ({ RedisConnect, redisClient }))
@@ -456,22 +457,61 @@ describe('process handlers', () => {
 
 	beforeEach(() => {
 		captureException.mockReset()
+		flush.mockReset().mockResolvedValue(true)
 		exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 	})
 	afterEach(() => exit.mockRestore())
 
-	it('onUnhandledRejection reports the reason and exits 1', () => {
+	// Neither handler can `await`: Node calls them synchronously and does not wait for a returned
+	// promise, so process.exit() has to be reached from flush()'s own callback instead — pinned with
+	// the exact timeout, or a boot-time crash is reported to the log and lost from Sentry regardless.
+	it('onUnhandledRejection reports the reason, flushes Sentry, then exits 1', async () => {
 		const reason = new Error('boom')
 		onUnhandledRejection(reason)
 		expect(captureException).toHaveBeenCalledWith(reason)
-		expect(exit).toHaveBeenCalledWith(1)
+
+		await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+
+		expect(flush).toHaveBeenCalledExactlyOnceWith(2000)
 	})
 
-	it('onUncaughtException reports the error and exits 1', () => {
+	// The ordering itself, not just that both eventually happened: process.exit() must wait on the
+	// flush promise settling, or a mutant that drops the `.finally` wiring and exits immediately would
+	// pass the test above unnoticed.
+	it('onUnhandledRejection does not exit until the flush settles', async () => {
+		let resolveFlush: (value: boolean) => void = () => undefined
+		flush.mockReturnValueOnce(new Promise<boolean>((resolve) => (resolveFlush = resolve)))
+
+		onUnhandledRejection(new Error('boom'))
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(exit).not.toHaveBeenCalled()
+
+		resolveFlush(true)
+		await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+	})
+
+	it('onUncaughtException reports the error, flushes Sentry, then exits 1', async () => {
 		const error = new Error('kaboom')
 		onUncaughtException(error)
 		expect(captureException).toHaveBeenCalledWith(error)
-		expect(exit).toHaveBeenCalledWith(1)
+
+		await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+
+		expect(flush).toHaveBeenCalledExactlyOnceWith(2000)
+	})
+
+	it('onUncaughtException does not exit until the flush settles', async () => {
+		let resolveFlush: (value: boolean) => void = () => undefined
+		flush.mockReturnValueOnce(new Promise<boolean>((resolve) => (resolveFlush = resolve)))
+
+		onUncaughtException(new Error('kaboom'))
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(exit).not.toHaveBeenCalled()
+
+		resolveFlush(true)
+		await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
 	})
 })
 
@@ -773,6 +813,7 @@ describe('start (success path)', () => {
 describe('request dispatch', () => {
 	let httpServer: http.Server
 	let apolloServer: ApolloServer
+	let app: Awaited<ReturnType<typeof createServer>>['app']
 	let origin: string
 
 	const userId = new Types.ObjectId('507f1f77bcf86cd799439011')
@@ -811,6 +852,7 @@ describe('request dispatch', () => {
 		)
 		httpServer = server.httpServer
 		apolloServer = server.apolloServer
+		app = server.app
 
 		await new Promise<void>((resolve) => httpServer.listen({ port: 0 }, () => resolve()))
 		origin = `http://127.0.0.1:${(httpServer.address() as { port: number }).port}`
@@ -933,6 +975,37 @@ describe('request dispatch', () => {
 		const res = await fetch(`${origin}${ENDPOINT}?query=%7BhelloRefresh%7Btxt%7D%7D`, { headers: authenticatedCall() })
 
 		expect(res.status).toBe(400)
+	})
+
+	/*
+	 * ⚠️ B1 regression. Every test above signs with the boot-time `KEYS` and proves dispatch order; this
+	 * one proves the auth middleware reads `app.keys` LIVE rather than a local it closed over at boot —
+	 * the exact seam `onKeys` (src/index.mts) depends on when a keygripRotate lands. `app.keys = ...` here
+	 * is exactly what `onKeys` does to it: reassigned in place, never mutated. Under the bug this request
+	 * would 401 forever, on a process that had itself already moved on to signing with the new key.
+	 */
+	it('accepts a refresh cookie signed with a key that only exists after a live app.keys rotation', async () => {
+		const rotatedKeys = ['c'.repeat(64), 'd'.repeat(64)]
+		// Exactly what `onKeys` does to it on a keygripRotate (src/index.mts): reassigned in place,
+		// never mutated.
+		app.keys = new Keygrip(rotatedKeys, 'sha512')
+		const signature = new Keygrip(rotatedKeys, 'sha512').sign(`refresh_token=${REFRESH}`)
+		hGetAll.mockResolvedValueOnce(session('user'))
+		findById.mockReturnValueOnce({ lean: async () => ({ _id: userId, login: { email: 'cliente@marketplace.test' } }) })
+
+		try {
+			const res = await fetch(`${origin}/health`, {
+				headers: { cookie: `refresh_token=${REFRESH}; refresh_token.sig=${signature}` }
+			})
+
+			// Under the bug this 401s forever: the middleware verified against the `keys` local it closed
+			// over at boot, which never heard about the rotation `app.keys` just went through.
+			expect(res.status).toBe(200)
+		} finally {
+			// Restore the boot-time keys so no later test in this describe block signs against a key
+			// this suite just rotated away from.
+			app.keys = new Keygrip(KEYS, 'sha512')
+		}
 	})
 })
 
