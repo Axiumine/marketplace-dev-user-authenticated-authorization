@@ -773,6 +773,7 @@ describe('start (success path)', () => {
 describe('request dispatch', () => {
 	let httpServer: http.Server
 	let apolloServer: ApolloServer
+	let app: Awaited<ReturnType<typeof createServer>>['app']
 	let origin: string
 
 	const userId = new Types.ObjectId('507f1f77bcf86cd799439011')
@@ -811,6 +812,7 @@ describe('request dispatch', () => {
 		)
 		httpServer = server.httpServer
 		apolloServer = server.apolloServer
+		app = server.app
 
 		await new Promise<void>((resolve) => httpServer.listen({ port: 0 }, () => resolve()))
 		origin = `http://127.0.0.1:${(httpServer.address() as { port: number }).port}`
@@ -933,6 +935,37 @@ describe('request dispatch', () => {
 		const res = await fetch(`${origin}${ENDPOINT}?query=%7BhelloRefresh%7Btxt%7D%7D`, { headers: authenticatedCall() })
 
 		expect(res.status).toBe(400)
+	})
+
+	/*
+	 * ⚠️ B1 regression. Every test above signs with the boot-time `KEYS` and proves dispatch order; this
+	 * one proves the auth middleware reads `app.keys` LIVE rather than a local it closed over at boot —
+	 * the exact seam `onKeys` (src/index.mts) depends on when a keygripRotate lands. `app.keys = ...` here
+	 * is exactly what `onKeys` does to it: reassigned in place, never mutated. Under the bug this request
+	 * would 401 forever, on a process that had itself already moved on to signing with the new key.
+	 */
+	it('accepts a refresh cookie signed with a key that only exists after a live app.keys rotation', async () => {
+		const rotatedKeys = ['c'.repeat(64), 'd'.repeat(64)]
+		// Exactly what `onKeys` does to it on a keygripRotate (src/index.mts): reassigned in place,
+		// never mutated.
+		app.keys = new Keygrip(rotatedKeys, 'sha512')
+		const signature = new Keygrip(rotatedKeys, 'sha512').sign(`refresh_token=${REFRESH}`)
+		hGetAll.mockResolvedValueOnce(session('user'))
+		findById.mockReturnValueOnce({ lean: async () => ({ _id: userId, login: { email: 'cliente@marketplace.test' } }) })
+
+		try {
+			const res = await fetch(`${origin}/health`, {
+				headers: { cookie: `refresh_token=${REFRESH}; refresh_token.sig=${signature}` }
+			})
+
+			// Under the bug this 401s forever: the middleware verified against the `keys` local it closed
+			// over at boot, which never heard about the rotation `app.keys` just went through.
+			expect(res.status).toBe(200)
+		} finally {
+			// Restore the boot-time keys so no later test in this describe block signs against a key
+			// this suite just rotated away from.
+			app.keys = new Keygrip(KEYS, 'sha512')
+		}
 	})
 })
 
