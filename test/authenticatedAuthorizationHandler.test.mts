@@ -34,7 +34,7 @@ const lPush = vi.fn()
 const lTrim = vi.fn()
 
 vi.mock('@axiumine/koa-utils/dataSources/Redis', () => ({
-	redisClient: { hGetAll, incr, expire, ttl, sMembers, del, lPush, lTrim }
+  redisClient: { hGetAll, incr, expire, ttl, sMembers, del, lPush, lTrim }
 }))
 vi.mock('@lib/auth/tokenInfoUser.mjs', () => ({ tokenInfoUser }))
 
@@ -78,11 +78,11 @@ const FAMILY_KEY = `test:family:${LINEAGE.familyId}`
 
 // Cookie signed the way Koa emits it: value + `.sig` cookie holding the Keygrip signature.
 function signedCookie(token = REFRESH) {
-	return `refresh_token=${token}; refresh_token.sig=${keys.sign(`refresh_token=${token}`)}`
+  return `refresh_token=${token}; refresh_token.sig=${keys.sign(`refresh_token=${token}`)}`
 }
 
 function makeCtx(header: Record<string, string>) {
-	return { request: { header }, state: {} } as unknown as IContextUserAuthenticatedAuthorization
+  return { request: { header }, state: {} } as unknown as IContextUserAuthenticatedAuthorization
 }
 
 /**
@@ -97,289 +97,289 @@ function makeCtx(header: Record<string, string>) {
  * against a fixture that carried the tier.
  */
 function redisSession(_id = OID, tier: string | null = 'user') {
-	const session: Record<string, string> = { _id, ...LINEAGE }
-	if (tier !== null) session.tier = tier
+  const session: Record<string, string> = { _id, ...LINEAGE }
+  if (tier !== null) session.tier = tier
 
-	return Object.assign(Object.create(null), session)
+  return Object.assign(Object.create(null), session)
 }
 
 describe('authenticatedAuthorizationHandler', () => {
-	let next: Next
+  let next: Next
 
-	beforeEach(() => {
-		hGetAll.mockReset()
-		incr.mockReset().mockResolvedValue(1)
-		expire.mockReset().mockResolvedValue(1)
-		// -1 is "key exists, no TTL". The limiter only reads this when repairing a window it lost.
-		ttl.mockReset().mockResolvedValue(-1)
-		sMembers.mockReset().mockResolvedValue([])
-		lPush.mockReset().mockResolvedValue(1)
-		lTrim.mockReset().mockResolvedValue('OK')
-		del.mockReset().mockResolvedValue(1)
-		tokenInfoUser.mockReset()
-		next = vi.fn().mockResolvedValue('next') as unknown as Next
-		// ⚠️ `Date` alone. Faking wholesale replaces the microtask queue the awaited handler runs on.
-		vi.useFakeTimers({ toFake: ['Date'] })
-		vi.setSystemTime(NOW)
-	})
+  beforeEach(() => {
+    hGetAll.mockReset()
+    incr.mockReset().mockResolvedValue(1)
+    expire.mockReset().mockResolvedValue(1)
+    // -1 is "key exists, no TTL". The limiter only reads this when repairing a window it lost.
+    ttl.mockReset().mockResolvedValue(-1)
+    sMembers.mockReset().mockResolvedValue([])
+    lPush.mockReset().mockResolvedValue(1)
+    lTrim.mockReset().mockResolvedValue('OK')
+    del.mockReset().mockResolvedValue(1)
+    tokenInfoUser.mockReset()
+    next = vi.fn().mockResolvedValue('next') as unknown as Next
+    // ⚠️ `Date` alone. Faking wholesale replaces the microtask queue the awaited handler runs on.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  })
 
-	afterEach(() => vi.useRealTimers())
+  afterEach(() => vi.useRealTimers())
 
-	// AB-04: a request carrying no credential is refused
-	it('rejects the request without a cookie', async () => {
-		const ctx = makeCtx({})
+  // AB-04: a request carrying no credential is refused
+  it('rejects the request without a cookie', async () => {
+    const ctx = makeCtx({})
 
-		await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
-		expect(hGetAll).not.toHaveBeenCalled()
-		expect(next).not.toHaveBeenCalled()
-	})
+    await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
+    expect(hGetAll).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
 
-	// AB-05: a credential of the wrong shape is refused — a bad scheme, a broken signature
-	it('rejects a cookie with an invalid signature', async () => {
-		const ctx = makeCtx({ cookie: `refresh_token=${REFRESH}; refresh_token.sig=fake-signature` })
+  // AB-05: a credential of the wrong shape is refused — a bad scheme, a broken signature
+  it('rejects a cookie with an invalid signature', async () => {
+    const ctx = makeCtx({ cookie: `refresh_token=${REFRESH}; refresh_token.sig=fake-signature` })
 
-		await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
-		expect(hGetAll).not.toHaveBeenCalled()
-	})
+    await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
+    expect(hGetAll).not.toHaveBeenCalled()
+  })
 
-	// AB-01: a valid credential is accepted and the session it resolves reaches ctx.state.user
-	it('builds state.user from the Redis session and the user record', async () => {
-		hGetAll.mockResolvedValueOnce(redisSession())
-		tokenInfoUser.mockResolvedValueOnce({ login: { email: 'customer@marketplace.test' } })
+  // AB-01: a valid credential is accepted and the session it resolves reaches ctx.state.user
+  it('builds state.user from the Redis session and the user record', async () => {
+    hGetAll.mockResolvedValueOnce(redisSession())
+    tokenInfoUser.mockResolvedValueOnce({ login: { email: 'customer@marketplace.test' } })
 
-		const ctx = makeCtx({ cookie: signedCookie() })
+    const ctx = makeCtx({ cookie: signedCookie() })
 
-		await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).resolves.toBe('next')
+    await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).resolves.toBe('next')
 
-		// ⚠️ A digest, not the token. The `refresh:` prefix is inside the hashed value, and the
-		// literal is computed elsewhere so a mutated algorithm cannot make this test agree with itself.
-		expect(hGetAll).toHaveBeenCalledExactlyOnceWith(HASHED_KEY)
-		expect(HASHED_KEY).not.toContain(REFRESH)
-		// The limiter counted this attempt, and the claim `resolveAuthorizationSession` takes on the hit
-		// it just read counted once more, in that order — nothing else did, and nothing that hangs off a
-		// miss ran at all.
-		expect(incr.mock.calls).toEqual([[RATE_LIMIT_KEY], [CLAIM_KEY]])
-		// The id string is turned into an ObjectId before the lookup.
-		expect(String(tokenInfoUser.mock.calls[0][0])).toBe(OID)
-		expect(ctx.state.user).toEqual({
-			_id: OID,
-			email: 'customer@marketplace.test',
-			tier: 'user',
-			refreshToken: `refresh:${REFRESH}`,
-			...LINEAGE
-		})
-		expect(next).toHaveBeenCalledTimes(1)
-	})
+    // ⚠️ A digest, not the token. The `refresh:` prefix is inside the hashed value, and the
+    // literal is computed elsewhere so a mutated algorithm cannot make this test agree with itself.
+    expect(hGetAll).toHaveBeenCalledExactlyOnceWith(HASHED_KEY)
+    expect(HASHED_KEY).not.toContain(REFRESH)
+    // The limiter counted this attempt, and the claim `resolveAuthorizationSession` takes on the hit
+    // it just read counted once more, in that order — nothing else did, and nothing that hangs off a
+    // miss ran at all.
+    expect(incr.mock.calls).toEqual([[RATE_LIMIT_KEY], [CLAIM_KEY]])
+    // The id string is turned into an ObjectId before the lookup.
+    expect(String(tokenInfoUser.mock.calls[0][0])).toBe(OID)
+    expect(ctx.state.user).toEqual({
+      _id: OID,
+      email: 'customer@marketplace.test',
+      tier: 'user',
+      refreshToken: `refresh:${REFRESH}`,
+      ...LINEAGE
+    })
+    expect(next).toHaveBeenCalledTimes(1)
+  })
 
-	// ⚠️ The assertion that matters most here, and the one with no counterpart in the ShopOwner
-	// service this was copied from: `toEqual` above already fails on an extra key, but it fails
-	// for a shape reason that reads like a typo. This says the thing outright — the customer tier
-	// has no onboarding, so no step may ever appear in the session, and a future edit that
-	// "restores" the missing `makeOnboardingData` branch is caught by a test that names why.
-	it('never puts an onboardingStep in the session — a customer has no onboarding', async () => {
-		hGetAll.mockResolvedValueOnce(redisSession())
-		tokenInfoUser.mockResolvedValueOnce({
-			login: { email: 'customer@marketplace.test', firstLogin: true, onboardingStep: 2, onboardingDone: false }
-		})
+  // ⚠️ The assertion that matters most here, and the one with no counterpart in the ShopOwner
+  // service this was copied from: `toEqual` above already fails on an extra key, but it fails
+  // for a shape reason that reads like a typo. This says the thing outright — the customer tier
+  // has no onboarding, so no step may ever appear in the session, and a future edit that
+  // "restores" the missing `makeOnboardingData` branch is caught by a test that names why.
+  it('never puts an onboardingStep in the session — a customer has no onboarding', async () => {
+    hGetAll.mockResolvedValueOnce(redisSession())
+    tokenInfoUser.mockResolvedValueOnce({
+      login: { email: 'customer@marketplace.test', firstLogin: true, onboardingStep: 2, onboardingDone: false }
+    })
 
-		const ctx = makeCtx({ cookie: signedCookie() })
+    const ctx = makeCtx({ cookie: signedCookie() })
 
-		await authenticatedAuthorizationHandler(keys)(ctx, next)
+    await authenticatedAuthorizationHandler(keys)(ctx, next)
 
-		// Even when the record carries onboarding fields, none of them reaches the session.
-		//
-		// `accessKey` is here and holds `undefined`: `resolveAuthorizationSession` carries the field through
-		// whether or not the stored hash had one, so a session minted before the rotation began stamping it
-		// arrives with the key present and empty — "nothing to retire", which is exactly how the rotation
-		// reads it. It is listed rather than filtered out because this assertion is a whitelist of what a
-		// customer session may contain, and a field appearing in it silently would defeat the point of the
-		// test.
-		expect(Object.keys(ctx.state.user).sort()).toEqual([
-			'_id',
-			'accessKey',
-			'email',
-			'familyId',
-			'originalLogin',
-			'refreshToken',
-			'sessionCapDays',
-			'tier'
-		])
-	})
+    // Even when the record carries onboarding fields, none of them reaches the session.
+    //
+    // `accessKey` is here and holds `undefined`: `resolveAuthorizationSession` carries the field through
+    // whether or not the stored hash had one, so a session minted before the rotation began stamping it
+    // arrives with the key present and empty — "nothing to retire", which is exactly how the rotation
+    // reads it. It is listed rather than filtered out because this assertion is a whitelist of what a
+    // customer session may contain, and a field appearing in it silently would defeat the point of the
+    // test.
+    expect(Object.keys(ctx.state.user).sort()).toEqual([
+      '_id',
+      'accessKey',
+      'email',
+      'familyId',
+      'originalLogin',
+      'refreshToken',
+      'sessionCapDays',
+      'tier'
+    ])
+  })
 
-	describe('tier assertion', () => {
-		// All nine services share one REDIS_KEY prefix, so a well-formed refresh session minted for
-		// another tier is findable under this key. Before the tier discriminator existed it was simply
-		// accepted. These three cases are that hole, and they must fail closed.
-		it.each([
-			{ tier: 'shopOwner', description: 'a ShopOwner refresh session' },
-			{ tier: 'admin', description: 'an Admin refresh session' },
-			{ tier: null, description: 'a session minted before the tier field existed' }
-			// AB-02: a session minted for another tier is refused with 403, not 401
-			// AB-03: a session carrying no tier at all is refused — fail closed, never a wildcard
-		])('refuses $tier ($description)', async ({ tier }) => {
-			hGetAll.mockResolvedValueOnce(redisSession(OID, tier))
+  describe('tier assertion', () => {
+    // All nine services share one REDIS_KEY prefix, so a well-formed refresh session minted for
+    // another tier is findable under this key. Before the tier discriminator existed it was simply
+    // accepted. These three cases are that hole, and they must fail closed.
+    it.each([
+      { tier: 'shopOwner', description: 'a ShopOwner refresh session' },
+      { tier: 'admin', description: 'an Admin refresh session' },
+      { tier: null, description: 'a session minted before the tier field existed' }
+      // AB-02: a session minted for another tier is refused with 403, not 401
+      // AB-03: a session carrying no tier at all is refused — fail closed, never a wildcard
+    ])('refuses $tier ($description)', async ({ tier }) => {
+      hGetAll.mockResolvedValueOnce(redisSession(OID, tier))
 
-			const ctx = makeCtx({ cookie: signedCookie() })
+      const ctx = makeCtx({ cookie: signedCookie() })
 
-			await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
-			// Refused before the id is looked up: the Mongo lookup is not a substitute for this check,
-			// it only fails by accident when the foreign id happens not to exist in `user` too.
-			expect(tokenInfoUser).not.toHaveBeenCalled()
-			expect(next).not.toHaveBeenCalled()
-		})
+      await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
+      // Refused before the id is looked up: the Mongo lookup is not a substitute for this check,
+      // it only fails by accident when the foreign id happens not to exist in `user` too.
+      expect(tokenInfoUser).not.toHaveBeenCalled()
+      expect(next).not.toHaveBeenCalled()
+    })
 
-		it('refuses with 403, not 401 — the caller authenticated, just somewhere else', async () => {
-			hGetAll.mockResolvedValueOnce(redisSession(OID, 'shopOwner'))
+    it('refuses with 403, not 401 — the caller authenticated, just somewhere else', async () => {
+      hGetAll.mockResolvedValueOnce(redisSession(OID, 'shopOwner'))
 
-			await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toMatchObject({
-				extensions: { http: { status: 403 } }
-			})
-		})
-	})
+      await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toMatchObject({
+        extensions: { http: { status: 403 } }
+      })
+    })
+  })
 
-	it('propagates the rejection when the user is disabled, deleted or gone', async () => {
-		hGetAll.mockResolvedValueOnce(redisSession())
-		tokenInfoUser.mockRejectedValueOnce(new Error('unauthorized'))
+  it('propagates the rejection when the user is disabled, deleted or gone', async () => {
+    hGetAll.mockResolvedValueOnce(redisSession())
+    tokenInfoUser.mockRejectedValueOnce(new Error('unauthorized'))
 
-		const ctx = makeCtx({ cookie: signedCookie() })
+    const ctx = makeCtx({ cookie: signedCookie() })
 
-		await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow('unauthorized')
-		expect(next).not.toHaveBeenCalled()
-	})
+    await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow('unauthorized')
+    expect(next).not.toHaveBeenCalled()
+  })
 
-	// AB-06: a credential whose session is gone from Redis is refused
-	it('rejects when the refresh session no longer exists in Redis', async () => {
-		hGetAll.mockResolvedValueOnce({})
+  // AB-06: a credential whose session is gone from Redis is refused
+  it('rejects when the refresh session no longer exists in Redis', async () => {
+    hGetAll.mockResolvedValueOnce({})
 
-		const ctx = makeCtx({ cookie: signedCookie() })
+    const ctx = makeCtx({ cookie: signedCookie() })
 
-		await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
-		expect(tokenInfoUser).not.toHaveBeenCalled()
-		expect(next).not.toHaveBeenCalled()
-	})
+    await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
+    expect(tokenInfoUser).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
 
-	/*
-	 * The case with the widest blast radius in this file: a refresh token is consumed by the
-	 * rotation that accepted it, so a *second* presentation of the same token is either a client that lost
-	 * a multi-tab race or a copy somebody else is holding. Past the ten-second grace window it is read as
-	 * the second, and the answer is not "this token is refused" — it is the whole lineage revoked, every
-	 * session it ever rotated into included, because a token being replayed means the chain leaked.
-	 *
-	 * ⚠️ The refusal the caller gets is the ordinary 498 an expired session gets, deliberately: a replayer
-	 * learns nothing from the response about whether the revocation happened.
-	 */
-	// AB-07: a refresh token presented a second time is refused, and its family revoked with it
-	it('refuses a replayed refresh token and takes its whole lineage down with it', async () => {
-		// Hashed key, then the tombstone: two reads, and only the second answers anything.
-		hGetAll.mockResolvedValueOnce({}).mockResolvedValueOnce({ familyId: LINEAGE.familyId, consumedAt: `${NOW - 60_000}` })
-		sMembers.mockResolvedValueOnce([HASHED_KEY, 'test:some-access-key'])
+  /*
+   * The case with the widest blast radius in this file: a refresh token is consumed by the
+   * rotation that accepted it, so a *second* presentation of the same token is either a client that lost
+   * a multi-tab race or a copy somebody else is holding. Past the ten-second grace window it is read as
+   * the second, and the answer is not "this token is refused" — it is the whole lineage revoked, every
+   * session it ever rotated into included, because a token being replayed means the chain leaked.
+   *
+   * ⚠️ The refusal the caller gets is the ordinary 498 an expired session gets, deliberately: a replayer
+   * learns nothing from the response about whether the revocation happened.
+   */
+  // AB-07: a refresh token presented a second time is refused, and its family revoked with it
+  it('refuses a replayed refresh token and takes its whole lineage down with it', async () => {
+    // Hashed key, then the tombstone: two reads, and only the second answers anything.
+    hGetAll.mockResolvedValueOnce({}).mockResolvedValueOnce({ familyId: LINEAGE.familyId, consumedAt: `${NOW - 60_000}` })
+    sMembers.mockResolvedValueOnce([HASHED_KEY, 'test:some-access-key'])
 
-		const ctx = makeCtx({ cookie: signedCookie() })
+    const ctx = makeCtx({ cookie: signedCookie() })
 
-		await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
+    await expect(authenticatedAuthorizationHandler(keys)(ctx, next)).rejects.toThrow()
 
-		expect(hGetAll).toHaveBeenLastCalledWith(TOMBSTONE_KEY)
-		expect(sMembers).toHaveBeenCalledExactlyOnceWith(FAMILY_KEY)
-		// One key per `del` (BCON-08), members first and the set itself last: dropping the set before its
-		// members would leave every session it named live and unreachable.
-		expect(del.mock.calls).toEqual([[HASHED_KEY], ['test:some-access-key'], [FAMILY_KEY]])
-		// This tombstone predates the reuse trail and names no account, so the revocation still happens
-		// and only the reuse event is lost. Fail-soft: an unattributable marker must never keep a leaked
-		// lineage alive.
-		expect(lPush).not.toHaveBeenCalled()
-		expect(tokenInfoUser).not.toHaveBeenCalled()
-		expect(next).not.toHaveBeenCalled()
-	})
+    expect(hGetAll).toHaveBeenLastCalledWith(TOMBSTONE_KEY)
+    expect(sMembers).toHaveBeenCalledExactlyOnceWith(FAMILY_KEY)
+    // One key per `del` (BCON-08), members first and the set itself last: dropping the set before its
+    // members would leave every session it named live and unreachable.
+    expect(del.mock.calls).toEqual([[HASHED_KEY], ['test:some-access-key'], [FAMILY_KEY]])
+    // This tombstone predates the reuse trail and names no account, so the revocation still happens
+    // and only the reuse event is lost. Fail-soft: an unattributable marker must never keep a leaked
+    // lineage alive.
+    expect(lPush).not.toHaveBeenCalled()
+    expect(tokenInfoUser).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
 
-	// The same revocation, from a tombstone that does name its account. The trail is what the
-	// admin console reads, so what lands in it — and what must never land in it — is asserted here.
-	it('files the replay on the account trail, with no token anywhere in the line', async () => {
-		hGetAll
-			.mockResolvedValueOnce({})
-			.mockResolvedValueOnce({ familyId: LINEAGE.familyId, consumedAt: `${NOW - 60_000}`, _id: OID, tier: 'user' })
-		sMembers.mockResolvedValueOnce([HASHED_KEY])
+  // The same revocation, from a tombstone that does name its account. The trail is what the
+  // admin console reads, so what lands in it — and what must never land in it — is asserted here.
+  it('files the replay on the account trail, with no token anywhere in the line', async () => {
+    hGetAll
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ familyId: LINEAGE.familyId, consumedAt: `${NOW - 60_000}`, _id: OID, tier: 'user' })
+    sMembers.mockResolvedValueOnce([HASHED_KEY])
 
-		await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toThrow()
+    await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toThrow()
 
-		const TRAIL_KEY = `test:reuse:user:${OID}`
+    const TRAIL_KEY = `test:reuse:user:${OID}`
 
-		expect(lPush).toHaveBeenCalledExactlyOnceWith(
-			TRAIL_KEY,
-			JSON.stringify({
-				familyId: LINEAGE.familyId,
-				tier: 'user',
-				accountId: OID,
-				action: 'refreshTokenReplayed',
-				at: `${NOW}`
-			})
-		)
-		// Fifty entries, thirty days: the two bounds the reuse trail is held to, arriving on the same append.
-		expect(lTrim).toHaveBeenCalledExactlyOnceWith(TRAIL_KEY, 0, 49)
-		expect(expire).toHaveBeenCalledWith(TRAIL_KEY, 2_592_000)
-		expect(lPush.mock.calls[0][1]).not.toContain(REFRESH)
-	})
+    expect(lPush).toHaveBeenCalledExactlyOnceWith(
+      TRAIL_KEY,
+      JSON.stringify({
+        familyId: LINEAGE.familyId,
+        tier: 'user',
+        accountId: OID,
+        action: 'refreshTokenReplayed',
+        at: `${NOW}`
+      })
+    )
+    // Fifty entries, thirty days: the two bounds the reuse trail is held to, arriving on the same append.
+    expect(lTrim).toHaveBeenCalledExactlyOnceWith(TRAIL_KEY, 0, 49)
+    expect(expire).toHaveBeenCalledWith(TRAIL_KEY, 2_592_000)
+    expect(lPush.mock.calls[0][1]).not.toContain(REFRESH)
+  })
 
-	// The other side of the same read: a token that no live session backs and no tombstone names is
-	// ordinary expiry, and revoking a family on it would log a user out for letting a session lapse.
-	it('revokes nothing when the missing session left no tombstone behind', async () => {
-		hGetAll.mockResolvedValueOnce({})
+  // The other side of the same read: a token that no live session backs and no tombstone names is
+  // ordinary expiry, and revoking a family on it would log a user out for letting a session lapse.
+  it('revokes nothing when the missing session left no tombstone behind', async () => {
+    hGetAll.mockResolvedValueOnce({})
 
-		await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toThrow()
+    await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toThrow()
 
-		expect(sMembers).not.toHaveBeenCalled()
-		expect(del).not.toHaveBeenCalled()
-	})
+    expect(sMembers).not.toHaveBeenCalled()
+    expect(del).not.toHaveBeenCalled()
+  })
 
-	/*
-	 * Two limiters guard the refresh endpoint and this is the pre-lookup one, the only one that
-	 * ever meters a token resolving to nothing: garbage, expired, tombstoned. A token that names no family
-	 * never reaches the per-family limiter inside `refreshSessionTokens` at all, so unless the count
-	 * happens here, guessing is free.
-	 *
-	 * Hence the ordering assertion. "Before the session read" is the whole property — a limiter that ran
-	 * after `hGetAll` would still let an attacker walk the keyspace one Redis read at a time.
-	 */
-	it('meters the attempt against the presented token before it reads the session', async () => {
-		hGetAll.mockResolvedValueOnce(redisSession())
-		tokenInfoUser.mockResolvedValueOnce({ login: { email: 'customer@marketplace.test' } })
+  /*
+   * Two limiters guard the refresh endpoint and this is the pre-lookup one, the only one that
+   * ever meters a token resolving to nothing: garbage, expired, tombstoned. A token that names no family
+   * never reaches the per-family limiter inside `refreshSessionTokens` at all, so unless the count
+   * happens here, guessing is free.
+   *
+   * Hence the ordering assertion. "Before the session read" is the whole property — a limiter that ran
+   * after `hGetAll` would still let an attacker walk the keyspace one Redis read at a time.
+   */
+  it('meters the attempt against the presented token before it reads the session', async () => {
+    hGetAll.mockResolvedValueOnce(redisSession())
+    tokenInfoUser.mockResolvedValueOnce({ login: { email: 'customer@marketplace.test' } })
 
-		await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).resolves.toBe('next')
+    await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).resolves.toBe('next')
 
-		// The pre-lookup limiter's own INCR is the first of the two this request makes — the second is
-		// `resolveAuthorizationSession`'s claim on the session, which cannot run until the session is found.
-		expect(incr.mock.calls[0]).toEqual([RATE_LIMIT_KEY])
-		expect(incr.mock.invocationCallOrder[0]).toBeLessThan(hGetAll.mock.invocationCallOrder[0])
-		// A minute, and the window is armed on the first attempt of it.
-		expect(expire.mock.calls[0]).toEqual([RATE_LIMIT_KEY, 60])
-		// Neither the token nor the key its session lives under survives into the counter's name.
-		expect(RATE_LIMIT_KEY).not.toContain(REFRESH)
-		expect(RATE_LIMIT_KEY).not.toContain(HASHED_KEY.slice('test:'.length))
-	})
+    // The pre-lookup limiter's own INCR is the first of the two this request makes — the second is
+    // `resolveAuthorizationSession`'s claim on the session, which cannot run until the session is found.
+    expect(incr.mock.calls[0]).toEqual([RATE_LIMIT_KEY])
+    expect(incr.mock.invocationCallOrder[0]).toBeLessThan(hGetAll.mock.invocationCallOrder[0])
+    // A minute, and the window is armed on the first attempt of it.
+    expect(expire.mock.calls[0]).toEqual([RATE_LIMIT_KEY, 60])
+    // Neither the token nor the key its session lives under survives into the counter's name.
+    expect(RATE_LIMIT_KEY).not.toContain(REFRESH)
+    expect(RATE_LIMIT_KEY).not.toContain(HASHED_KEY.slice('test:'.length))
+  })
 
-	/*
-	 * The refusal, and what it must cost: one `INCR` and nothing else. No session read, no Mongo lookup,
-	 * no `next()` — a refused attempt that still reads Redis and Mongo is a rate limiter that makes the
-	 * flood cheaper for the attacker than for the platform.
-	 */
-	it('refuses the twenty-first attempt of a minute without reading anything', async () => {
-		incr.mockResolvedValueOnce(21)
+  /*
+   * The refusal, and what it must cost: one `INCR` and nothing else. No session read, no Mongo lookup,
+   * no `next()` — a refused attempt that still reads Redis and Mongo is a rate limiter that makes the
+   * flood cheaper for the attacker than for the platform.
+   */
+  it('refuses the twenty-first attempt of a minute without reading anything', async () => {
+    incr.mockResolvedValueOnce(21)
 
-		await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toMatchObject({
-			extensions: { http: { status: 429 } }
-		})
+    await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).rejects.toMatchObject({
+      extensions: { http: { status: 429 } }
+    })
 
-		expect(hGetAll).not.toHaveBeenCalled()
-		expect(tokenInfoUser).not.toHaveBeenCalled()
-		expect(next).not.toHaveBeenCalled()
-	})
+    expect(hGetAll).not.toHaveBeenCalled()
+    expect(tokenInfoUser).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
 
-	// The twentieth is still served: twenty attempts are allowed, the twenty-first is not, and `>` versus
-	// `>=` inside the limiter differs by exactly this call. Mocked at the boundary for that reason.
-	it('serves the twentieth attempt of a minute', async () => {
-		incr.mockResolvedValueOnce(20)
-		hGetAll.mockResolvedValueOnce(redisSession())
-		tokenInfoUser.mockResolvedValueOnce({ login: { email: 'customer@marketplace.test' } })
+  // The twentieth is still served: twenty attempts are allowed, the twenty-first is not, and `>` versus
+  // `>=` inside the limiter differs by exactly this call. Mocked at the boundary for that reason.
+  it('serves the twentieth attempt of a minute', async () => {
+    incr.mockResolvedValueOnce(20)
+    hGetAll.mockResolvedValueOnce(redisSession())
+    tokenInfoUser.mockResolvedValueOnce({ login: { email: 'customer@marketplace.test' } })
 
-		await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).resolves.toBe('next')
-	})
+    await expect(authenticatedAuthorizationHandler(keys)(makeCtx({ cookie: signedCookie() }), next)).resolves.toBe('next')
+  })
 })

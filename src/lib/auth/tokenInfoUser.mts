@@ -26,5 +26,5 @@ import { Types } from 'mongoose'
  * access-token lifetime instead of one refresh-token lifetime.
  */
 export async function tokenInfoUser(_id: Types.ObjectId): Promise<IUserModel> {
-	return findAccountForSession<IUserModel>(User, _id, '_id login.email deleted disabled')
+  return findAccountForSession<IUserModel>(User, _id, '_id login.email deleted disabled')
 }

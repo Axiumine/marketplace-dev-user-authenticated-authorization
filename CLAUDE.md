@@ -57,8 +57,9 @@ coverage, Qodana. push → same + semgrep (SAST) + trivy (dependency advisories)
 - **No remote. Push-on-request:** no `git push` unless the user asked for it in that message.
 - **Never lower a coverage or mutation threshold, and never remove a gate.** Threshold miss → write the
   missing test. Bypasses (`SKIP_QODANA=1`, `--no-verify`) are gate removals: use only when the user says so.
-- **Tabs, not spaces.** eslint + prettier both enforce.
+- **Two spaces, not tabs** (ADR-058). prettier enforces it (`useTabs: false`, `tabWidth: 2`); eslint `indent` is pinned to 2 for `test/**` and `vitest.*.mts`. Shell scripts and git hooks keep tabs for their `<<-` heredocs.
 - **English only** — identifiers, comments, fixtures. No exception.
+- **`osv-scanner.toml` ignores `GHSA-vfj7-8cjw-p6xm` (braces, dev toolchain only) until 2027-01-15, under ADR-057.** The entry expires on purpose, so the Scorecard Vulnerabilities check and the pre-push floor fail again after that date: that is the review. Delete the entry when a patched `braces` exists.
 - Domain query/mutation → **resource** svc. Token lifecycle → **authorization** svc.
 - **Run `impact({target, repo})` before editing a symbol and `detect_changes()` before committing**;
   `repo:` is mandatory and must be a `marketplace*` registry name.

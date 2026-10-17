@@ -11,15 +11,15 @@ export const refreshProjection = '_id login.email deleted disabled'
 export const isSuspended = (user: Record<string, unknown>) => user.disabled === true
 
 export const suspensionOf = (user: { disabled?: boolean; disabledReason?: string }) => {
-	const { disabled, disabledReason } = user
+  const { disabled, disabledReason } = user
 
-	return disabled === true ? disabledReason : undefined
+  return disabled === true ? disabledReason : undefined
 }
 
 // The interface the projection is typed against, where a widened read lands first.
 export interface IUserDisabledCheck {
-	disabled?: boolean
-	disabledReason?: string
+  disabled?: boolean
+  disabledReason?: string
 }
 
 // Both names in prose, the way ADR-044 and this repo's own comments write them: disabled, disabledBy.

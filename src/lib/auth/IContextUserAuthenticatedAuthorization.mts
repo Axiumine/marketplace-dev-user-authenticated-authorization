@@ -17,12 +17,12 @@ import { IncomingHttpHeaders } from 'http'
  * can delete it after minting the replacement.
  */
 type IStateApi = {
-	user: TAuthorizationSession<IRedisDataUserCommon>
+  user: TAuthorizationSession<IRedisDataUserCommon>
 }
 export type IContextUserAuthenticatedAuthorization = {
-	state: IStateApi
-	cookies: ICookies
-	request: {
-		header?: TCommonHeaders & IncomingHttpHeaders
-	}
+  state: IStateApi
+  cookies: ICookies
+  request: {
+    header?: TCommonHeaders & IncomingHttpHeaders
+  }
 }

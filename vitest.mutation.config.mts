@@ -26,20 +26,20 @@ import { nodeNextResolver } from './vitest.shared.mts'
 const inlineDeps = [/graphql/, /@apollo\/server/, /@as-integrations/, /@axiumine\/koa-utils/, /@axiumine\/marketplace-common/]
 
 export default defineConfig({
-	plugins: [nodeNextResolver],
-	resolve: { dedupe: ['graphql'] },
-	test: {
-		include: ['test/*.test.mts'],
-		server: { deps: { inline: inlineDeps } },
-		testTimeout: 30_000,
-		// Caps how long a test's full name may be — the mutation gate selects tests by name,
-		// and past a size it cannot; see vitest.testNames.mts.
-		setupFiles: ['./vitest.testNames.mts'],
-		// Same as the `unit` project: set before the sources call `dotenv.config()`,
-		// which does not override keys already present in process.env.
-		env: {
-			NODE_ENV: 'test',
-			REDIS_KEY: 'test:'
-		}
-	}
+  plugins: [nodeNextResolver],
+  resolve: { dedupe: ['graphql'] },
+  test: {
+    include: ['test/*.test.mts'],
+    server: { deps: { inline: inlineDeps } },
+    testTimeout: 30_000,
+    // Caps how long a test's full name may be — the mutation gate selects tests by name,
+    // and past a size it cannot; see vitest.testNames.mts.
+    setupFiles: ['./vitest.testNames.mts'],
+    // Same as the `unit` project: set before the sources call `dotenv.config()`,
+    // which does not override keys already present in process.env.
+    env: {
+      NODE_ENV: 'test',
+      REDIS_KEY: 'test:'
+    }
+  }
 })
