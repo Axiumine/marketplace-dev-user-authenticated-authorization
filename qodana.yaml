@@ -20,28 +20,30 @@ image: jetbrains/qodana-js:2026.2
 
 # ── SCA: third-party license audit (Ultimate Plus) ────────────────────────────
 # Scans npm/Yarn deps and surfaces license conflicts as problems. The project is
-# proprietary (package.json "UNLICENSED"), so Qodana's default compatibility
-# matrix already flags copyleft dependencies. Tighten per-project below if needed.
+# GPL-3.0-or-later (package.json, LICENSE); Qodana judges every dependency against
+# the compatibility matrix of that license. Tighten per-project below if needed.
 raiseLicenseProblems: true
 
 # `keys` is THIS project's license, `allowed` the dependency licenses accepted
-# against it. The default matrix for a proprietary project flags every copyleft
-# dep as a Critical — correct for shipped software, wrong here: these services are
-# never distributed, they run on our own hosts behind nginx, so the GPL's
-# distribution trigger is never pulled. Accepted by the project owner.
+# against it. The matrix for a proprietary project, which is what this project was
+# scanned as before the LICENSE file landed, flags every copyleft dep as a Critical —
+# correct for shipped software, wrong here: these services are never distributed, they
+# run on our own hosts behind nginx, so the GPL's distribution trigger is never pulled.
+# Accepted by the project owner; the `allowed` list below dates from then and is kept.
 #
 # Deliberately NOT `dependencyIgnores: - name: "@axiumine/koa-utils"`. That key
 # drops a package from the whole SCA pass, so a future CVE in it would be silenced
 # along with the license noise. This suppresses only the license verdict and keeps
 # vulnerable-dependency scanning fully armed.
 #
-# `keys` must carry the key Qodana derives, NOT the package.json string: it maps
-# "UNLICENSED" to PROPRIETARY-LICENSE, and the finding text says so verbatim —
+# `keys` must carry the key Qodana derives, NOT the package.json string: while
+# package.json declared "UNLICENSED" it mapped that to PROPRIETARY-LICENSE, and the
+# finding text said so verbatim —
 # "…is in the prohibited licenses list with project license 'PROPRIETARY-LICENSE'".
-# Putting "UNLICENSED" here matches no project and the rule silently does nothing.
+# Putting "UNLICENSED" there matched no project and the rule silently did nothing.
 #
-# PROPRIETARY-LICENSE is in `allowed` as well so that a proprietary dependency
-# under the same owner as this proprietary project is not read as a conflict.
+# PROPRIETARY-LICENSE stays in `allowed` from the time this project was proprietary,
+# when a proprietary dependency under the same owner was not to be read as a conflict.
 # marketplace-common is no longer one of those — it is GPL-3.0-or-later now, and
 # is covered by the GPL entries alongside it.
 #
@@ -55,8 +57,8 @@ raiseLicenseProblems: true
 # *modified* covered files, which we neither modify nor distribute.
 #
 # CC0-1.0 covers type-fest, whose package.json declares "(MIT OR CC0-1.0)" — a dual
-# license, ours to choose from. Qodana records BOTH keys and checks the CC0 one against
-# the PROPRIETARY-LICENSE ruleset, where CC0-1.0 appears neither in `allowed` nor in
+# license, ours to choose from. Qodana records BOTH keys and checked the CC0 one against
+# the PROPRIETARY-LICENSE ruleset, where CC0-1.0 appeared neither in `allowed` nor in
 # `prohibited`: the verdict is "Uncategorized". The CLI does not count that as a problem
 # — every local scan reported 0 — but Qodana Cloud counts it in the license inventory as
 # one suspicious license, which is why the terminal looked clean while the dashboard did
