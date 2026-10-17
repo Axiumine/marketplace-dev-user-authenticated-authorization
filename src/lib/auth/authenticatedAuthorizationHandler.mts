@@ -28,29 +28,29 @@ dotenv.config()
  */
 
 export const authenticatedAuthorizationHandler =
-	(keys: Keygrip) => async (ctx: IContextUserAuthenticatedAuthorization, next: Next) => {
-		/***************************
-		 * The client sends the refresh token as a Koa signed cookie; `verifySignedRefreshToken` checks
-		 * the Keygrip signature and hands back the token itself.
-		 */
-		const refreshToken = verifySignedRefreshToken(ctx as unknown as IContextRefresh, keys)
+  (keys: Keygrip) => async (ctx: IContextUserAuthenticatedAuthorization, next: Next) => {
+    /***************************
+     * The client sends the refresh token as a Koa signed cookie; `verifySignedRefreshToken` checks
+     * the Keygrip signature and hands back the token itself.
+     */
+    const refreshToken = verifySignedRefreshToken(ctx as unknown as IContextRefresh, keys)
 
-		// ⚠️ **Before the session read, and that is the whole point**. This is the only limiter that
-		// ever meters a token resolving to nothing — garbage, expired, tombstoned — because the per-family one
-		// is never reached by a token that names no family. Twenty attempts a minute per token; the signature
-		// has already been checked above, so a caller with no valid cookie never gets this far either.
-		await guardRefreshAttempt(redisClient, refreshToken)
+    // ⚠️ **Before the session read, and that is the whole point**. This is the only limiter that
+    // ever meters a token resolving to nothing — garbage, expired, tombstoned — because the per-family one
+    // is never reached by a token that names no family. Twenty attempts a minute per token; the signature
+    // has already been checked above, so a caller with no valid cookie never gets this far either.
+    await guardRefreshAttempt(redisClient, refreshToken)
 
-		ctx.state.user = await resolveAuthorizationSession<IRedisDataUserCommon>({
-			store: redisClient,
-			refreshToken,
-			tier: TIER.user,
-			readSessionData: async (_id) => {
-				const user = await tokenInfoUser(_id)
+    ctx.state.user = await resolveAuthorizationSession<IRedisDataUserCommon>({
+      store: redisClient,
+      refreshToken,
+      tier: TIER.user,
+      readSessionData: async (_id) => {
+        const user = await tokenInfoUser(_id)
 
-				return { email: user.login.email }
-			}
-		})
+        return { email: user.login.email }
+      }
+    })
 
-		return next()
-	}
+    return next()
+  }

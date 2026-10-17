@@ -2,6 +2,6 @@
 import { sentryBeforeSend } from '@axiumine/marketplace-common/others/sentryBeforeSend'
 
 export const initOptions = {
-	dsn: 'https://public@collector.example/1',
-	beforeSend: sentryBeforeSend
+  dsn: 'https://public@collector.example/1',
+  beforeSend: sentryBeforeSend
 }

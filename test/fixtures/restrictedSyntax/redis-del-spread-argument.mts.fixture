@@ -2,5 +2,5 @@
 // rather than `del` because UNLINK is the same command with a different reclaim strategy, and the cluster
 // refuses it across slots for exactly the same reason.
 export const revoke = async (redisClient, keys) => {
-	await redisClient.unlink(...keys)
+  await redisClient.unlink(...keys)
 }
