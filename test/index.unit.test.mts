@@ -57,7 +57,8 @@ const ROTATED_KEYS = [
   ...KEYGRIP_KEYS
 ]
 
-vi.mock('@sentry/node', () => ({ captureException, captureMessage, flush }))
+// koa-utils >= 8 reads captureMessage and withScope off @sentry/node as soon as it loads, so the factory must export both.
+vi.mock('@sentry/node', () => ({ captureException, captureMessage, flush, withScope: vi.fn() }))
 // The unit project never connects to anything — `start()`'s failure path and the wire tests below both
 // run against these stubs.
 vi.mock('@axiumine/koa-utils/dataSources/Redis', () => ({ RedisConnect, redisClient }))
