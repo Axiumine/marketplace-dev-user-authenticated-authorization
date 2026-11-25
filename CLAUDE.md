@@ -53,7 +53,7 @@ coverage, Qodana. push → same + semgrep (SAST) + trivy (dependency advisories)
 
 - **Never commit on `main`.** Branch first: `git switch -c <type>/<slug>`. Merge = user decision alone.
 - Merged → delete branch: `git branch -d <slug>`. `-d` only. `-D` never.
-- **No remote. Push-on-request:** no `git push` unless the user asked for it in that message.
+- **Push-on-request:** no `git push` unless the user asked for it in that message.
 - **Never lower a coverage or mutation threshold, and never remove a gate.** Threshold miss → write the
   missing test. Bypasses (`SKIP_QODANA=1`, `--no-verify`) are gate removals: use only when the user says so.
 - **Two spaces, not tabs** (ADR-058). prettier enforces it (`useTabs: false`, `tabWidth: 2`); eslint `indent` is pinned to 2 for `test/**` and `vitest.*.mts`. Shell scripts and git hooks keep tabs for their `<<-` heredocs.
